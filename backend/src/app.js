@@ -2,16 +2,18 @@ const express = require('express');
 const path = require('path');
 const mongoose = require('mongoose');
 const cors = require('cors');
+require('dotenv').config();
 const app = express();
 
 const inventarioRoutes = require('./routes/inventario');
 const produccionRoutes = require('./routes/produccion');
 const usuarioRoutes = require('./routes/usuario');
 
-// Conexión a MongoDB (opciones deprecadas eliminadas)
-mongoose.connect('mongodb://localhost:27017/cafe_gourmet')
+// Conexión a MongoDB configurable por entorno
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/cafe_gourmet';
+mongoose.connect(MONGODB_URI)
     .then(() => {
-        console.log('Conectado a MongoDB');
+    console.log('Conectado a MongoDB');
     })
     .catch(err => {
         console.error('Error al conectar a MongoDB:', err);
