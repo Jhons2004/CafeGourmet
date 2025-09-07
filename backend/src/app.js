@@ -45,8 +45,9 @@ app.get(/^\/(?!api).*$/, (req, res) => {
 // (El bloque duplicado de estáticos fue removido para evitar conflictos)
 
 const PORT = process.env.PORT || 3000;
-const server = app.listen(PORT, () => {
-    console.log(`Servidor corriendo en puerto ${PORT}`);
+const HOST = process.env.HOST || '127.0.0.1';
+const server = app.listen(PORT, HOST, () => {
+    console.log(`Servidor corriendo en ${HOST}:${PORT}`);
 });
 
 // Logs adicionales para diagnosticar caídas
