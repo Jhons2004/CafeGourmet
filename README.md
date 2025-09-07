@@ -44,3 +44,37 @@ Si `git commit` falla por falta de identidad, configura localmente:
 git config user.name "Tu Nombre"
 git config user.email "tu-email@ejemplo.com"
 ```
+
+## Colaboradores: cómo ejecutar
+1. Clonar el repo:
+   ```powershell
+   git clone https://github.com/Jhons2004/CafeGourmet
+   cd CafeGourmet
+   ```
+2. Configurar entorno del backend:
+   - Copia `backend/.env.example` a `backend/.env` y revisa `MONGODB_URI`.
+3. Preparar MongoDB (elige una opción):
+   - Local instalado: asegurarse que corre en `127.0.0.1:27017`.
+   - Docker: 
+     ```powershell
+     docker compose up -d
+     ```
+   - Atlas (nube): usa un connection string de Atlas en `MONGODB_URI`.
+4. Instalar y construir frontend:
+   ```powershell
+   cd Frontend
+   npm ci
+   npm run build
+   cd ..
+   ```
+5. Ejecutar backend (sirve API + SPA):
+   ```powershell
+   cd backend
+   npm ci
+   npm start
+   ```
+6. Abrir en navegador: `http://127.0.0.1:3000` y verificar `GET /api/health`.
+
+Notas:
+- Variables sensibles no se versionan; usa `.env` locales.
+- Si necesitas exponer tu backend a internet para demos, considera `ngrok`.
