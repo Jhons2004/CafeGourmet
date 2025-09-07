@@ -1,0 +1,7 @@
+/* Minimal reset; App.css provides all styles to avoid confusion */
+html, body, #root {
+  height: 100%;
+}
+body {
+  margin: 0;
+}
