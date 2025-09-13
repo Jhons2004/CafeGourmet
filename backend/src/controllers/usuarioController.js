@@ -1,7 +1,17 @@
 const crypto = require('crypto');
+const jwt = require('jsonwebtoken');
 const Usuario = require('../models/Usuario');
+const { JWT_SECRET } = require('../middleware/auth');
 
 module.exports = {
+    listar: async (_req, res) => {
+        try {
+            const usuarios = await Usuario.find({}, { password: 0, resetToken: 0, resetExpires: 0 }).sort({ nombre: 1 });
+            res.json(usuarios);
+        } catch (err) {
+            res.status(500).json({ error: 'Error al listar usuarios', detalles: err.message });
+        }
+    },
     registrar: async (req, res) => {
         try {
             const { nombre, email, password, rol } = req.body;
@@ -14,6 +24,30 @@ module.exports = {
             res.status(400).json({ error: 'Error al registrar usuario', detalles: err.message });
         }
     },
+    actualizarRol: async (req, res) => {
+        try {
+            const { id } = req.params;
+            const { rol } = req.body; // 'admin' | 'it' | 'rrhh' | 'operador'
+            if (!['admin', 'it', 'rrhh', 'operador'].includes(rol)) {
+                return res.status(400).json({ error: 'Rol inválido' });
+            }
+            const usuario = await Usuario.findByIdAndUpdate(id, { rol }, { new: true, projection: { password: 0, resetToken: 0, resetExpires: 0 } });
+            if (!usuario) return res.status(404).json({ error: 'Usuario no encontrado' });
+            res.json({ mensaje: 'Rol actualizado', usuario });
+        } catch (err) {
+            res.status(400).json({ error: 'Error al actualizar rol', detalles: err.message });
+        }
+    },
+    eliminar: async (req, res) => {
+        try {
+            const { id } = req.params;
+            const eliminado = await Usuario.findByIdAndDelete(id);
+            if (!eliminado) return res.status(404).json({ error: 'Usuario no encontrado' });
+            res.json({ mensaje: 'Usuario eliminado' });
+        } catch (err) {
+            res.status(400).json({ error: 'Error al eliminar usuario', detalles: err.message });
+        }
+    },
     login: async (req, res) => {
         try {
             const { email, password } = req.body;
@@ -21,7 +55,8 @@ module.exports = {
             if (!usuario) return res.status(404).json({ error: 'Usuario no encontrado' });
             const valido = await usuario.compararPassword(password);
             if (!valido) return res.status(401).json({ error: 'Contraseña incorrecta' });
-            res.json({ mensaje: 'Login exitoso', usuario: { nombre: usuario.nombre, email: usuario.email, rol: usuario.rol } });
+            const token = jwt.sign({ id: usuario._id, nombre: usuario.nombre, email: usuario.email, rol: usuario.rol }, JWT_SECRET, { expiresIn: '8h' });
+            res.json({ mensaje: 'Login exitoso', token, usuario: { nombre: usuario.nombre, email: usuario.email, rol: usuario.rol } });
         } catch (err) {
             res.status(400).json({ error: 'Error en login', detalles: err.message });
         }

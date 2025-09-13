@@ -17,6 +17,7 @@ function App() {
   const [mensaje, setMensaje] = useState('');
   const [login, setLogin] = useState({ email: '', password: '' });
   const [user, setUser] = useState(null);
+  const [token, setToken] = useState('');
   const [loginMsg, setLoginMsg] = useState('');
   const [apiStatus, setApiStatus] = useState('');
 
@@ -127,6 +128,7 @@ function App() {
       const data = await res.json();
       if (res.ok) {
         setUser(data.usuario);
+        setToken(data.token || '');
         setLogin({ email: '', password: '' });
       } else {
         setLoginMsg(data.error || 'Login incorrecto');
@@ -164,6 +166,14 @@ function App() {
   };
 
   const [panel, setPanel] = useState('inicio');
+  const permiteConfig = user && ['admin','it','rrhh'].includes(user.rol);
+  const USERS_URL = '/api/usuario';
+  const [users, setUsers] = useState([]);
+  const [newUser, setNewUser] = useState({ nombre:'', email:'', password:'', rol:'operador' });
+  const cargarUsuarios = async ()=>{
+    try { const r = await fetch(USERS_URL, { headers: token ? { Authorization: `Bearer ${token}` } : {} }); if (r.ok) setUsers(await r.json()); }
+    catch (e) { console.warn('No se pudo cargar usuarios', e); }
+  };
   // Producción state
   const [ops, setOps] = useState([]);
   const [newOP, setNewOP] = useState({ producto: '', receta: [{ tipo: 'arabica', cantidad: 1 }] });
@@ -254,6 +264,9 @@ function App() {
         </div>
   <button style={{ marginBottom: 16, width: '100%' }} className="btn btn--primary" onClick={() => setPanel('inventario')}>Ir a Inventario de Granos</button>
   <button style={{ marginBottom: 16, width: '100%' }} className="btn" onClick={() => { setPanel('produccion'); loadOPs(); }}>Ir a Producción</button>
+  {permiteConfig && (
+    <button style={{ marginBottom: 16, width: '100%' }} className="btn" onClick={() => { setPanel('config'); cargarUsuarios(); }}>Configuración y Usuarios</button>
+  )}
   <button className="btn btn--danger" style={{ width: '100%' }} onClick={handleLogout}>Cerrar sesión</button>
       </div>
     );
@@ -426,6 +439,70 @@ function App() {
             </div>
           </div>
         )}
+      </div>
+    );
+  }
+
+  if (panel === 'config') {
+    return (
+      <div className="form-container">
+        <div className="toolbar" style={{ marginBottom: 8 }}>
+          <h2 style={{ margin: 0 }}>Configuración y Usuarios</h2>
+          <button className="btn btn--secondary" onClick={() => setPanel('inicio')}>Volver</button>
+        </div>
+        <div className="panel muted" style={{ marginBottom: 12 }}>
+          Acceso: {user.nombre} ({user.rol})
+        </div>
+
+        <form className="panel" onSubmit={async(e)=>{
+          e.preventDefault();
+          try { const r = await fetch(`${USERS_URL}/registrar`, { method:'POST', headers:{'Content-Type':'application/json', ...(token? { Authorization: `Bearer ${token}` } : {})}, body: JSON.stringify(newUser) }); if (r.ok) { setNewUser({ nombre:'', email:'', password:'', rol:'operador' }); cargarUsuarios(); } }
+          catch (e) { console.warn('No se pudo crear usuario', e); }
+        }}>
+          <div className="panel__title">Crear usuario</div>
+          <label>Nombre</label>
+          <input value={newUser.nombre} onChange={e=>setNewUser({...newUser, nombre:e.target.value})} required />
+          <label>Usuario/Email</label>
+          <input value={newUser.email} onChange={e=>setNewUser({...newUser, email:e.target.value})} required />
+          <label>Contraseña</label>
+          <input type="password" value={newUser.password} onChange={e=>setNewUser({...newUser, password:e.target.value})} required />
+          <label>Rol</label>
+          <select value={newUser.rol} onChange={e=>setNewUser({...newUser, rol:e.target.value})}>
+            <option value="operador">Operador</option>
+            <option value="it">Soporte IT</option>
+            <option value="rrhh">RRHH</option>
+            <option value="admin">Administrador</option>
+          </select>
+          <div style={{ height:8 }} />
+          <button className="btn btn--primary" type="submit">Crear</button>
+        </form>
+
+        <h3>Usuarios</h3>
+        <table className="table table--zebra">
+          <thead>
+            <tr><th>Nombre</th><th>Email</th><th>Rol</th><th>Acciones</th></tr>
+          </thead>
+          <tbody>
+            {users.map(u=> (
+              <tr key={u._id}>
+                <td>{u.nombre}</td>
+                <td>{u.email}</td>
+                <td>
+                  <select value={u.rol} onChange={async(e)=>{ await fetch(`${USERS_URL}/${u._id}/rol`, { method:'PATCH', headers:{'Content-Type':'application/json', ...(token? { Authorization: `Bearer ${token}` } : {})}, body: JSON.stringify({ rol:e.target.value }) }); cargarUsuarios(); }}>
+                    <option value="operador">Operador</option>
+                    <option value="it">Soporte IT</option>
+                    <option value="rrhh">RRHH</option>
+                    <option value="admin">Administrador</option>
+                  </select>
+                </td>
+                <td>
+                  <button className="btn btn--sm btn--secondary" onClick={async()=>{ await fetch(`${RESET_SIMPLE_URL}`, { method:'POST', headers:{'Content-Type':'application/json', ...(token? { Authorization: `Bearer ${token}` } : {})}, body: JSON.stringify({ email: u.email, nuevaPassword: '12345678' }) }); }}>Reset pass</button>
+                  <button className="btn btn--sm btn--danger" style={{ marginLeft:6 }} onClick={async()=>{ await fetch(`${USERS_URL}/${u._id}`, { method:'DELETE', headers: token? { Authorization: `Bearer ${token}` } : {} }); cargarUsuarios(); }}>Eliminar</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     );
   }

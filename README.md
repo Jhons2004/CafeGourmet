@@ -9,6 +9,8 @@ Monorepo con Backend (Express/MongoDB) y Frontend (React + Vite).
 ## Requisitos
 - Node.js 20.19+ o 22.12+
 - MongoDB local en `mongodb://127.0.0.1:27017`
+ - Variables de entorno (ver `.env.example`):
+    - `HOST`, `PORT`, `MONGODB_URI`, `JWT_SECRET`
 
 ## Desarrollo / Build
 1. Instala dependencias del Frontend y construye la SPA:
@@ -78,3 +80,45 @@ git config user.email "tu-email@ejemplo.com"
 Notas:
 - Variables sensibles no se versionan; usa `.env` locales.
 - Si necesitas exponer tu backend a internet para demos, considera `ngrok`.
+
+## Autenticación y Roles
+
+- Autenticación por JWT. El backend emite `token` en `POST /api/usuario/login`.
+- En el Frontend, las operaciones de administración envían `Authorization: Bearer <token>`.
+- Roles disponibles: `admin`, `it`, `rrhh`, `operador`.
+   - Panel de Configuración y Usuarios visible para: `admin`, `it`, `rrhh`.
+   - Endpoints de administración protegidos con middleware de autorización.
+
+### Usuarios sembrados (seed)
+
+Al iniciar, si no existen, se crean dos cuentas admin:
+
+- Admin1 — email: `admin1@cafe.com` — password: `12345678`
+- Admin2 — email: `admin2@cafe.com` — password: `12345678`
+
+Se recomienda cambiar las contraseñas tras el primer ingreso.
+
+### Variables de entorno clave (`backend/.env`)
+
+Ejemplo:
+
+```
+HOST=127.0.0.1
+PORT=3000
+MONGODB_URI=mongodb://127.0.0.1:27017/cafe_gourmet
+JWT_SECRET=cambia-esta-clave-super-secreta
+```
+
+Para exponer en LAN, usa `HOST=0.0.0.0` y abre el puerto 3000 en el firewall.
+
+### Panel de Configuración y Usuarios (Frontend)
+
+- Acceso desde el menú lateral cuando el rol es `admin`, `it` o `rrhh`.
+- Permite:
+   - Crear usuarios con rol.
+   - Listar usuarios (sin contraseñas).
+   - Cambiar rol.
+   - Resetear contraseña (flujo simple).
+   - Eliminar usuario.
+
+Nota: Todas estas acciones requieren token válido con rol autorizado.

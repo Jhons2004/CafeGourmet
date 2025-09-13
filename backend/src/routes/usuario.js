@@ -1,9 +1,13 @@
 const express = require('express');
 const router = express.Router();
+const { requireAuth, requireRole } = require('../middleware/auth');
 const usuarioController = require('../controllers/usuarioController');
 
 router.post('/registrar', usuarioController.registrar);
 router.post('/login', usuarioController.login);
+router.get('/', requireAuth, requireRole('admin','it','rrhh'), usuarioController.listar);
+router.patch('/:id/rol', requireAuth, requireRole('admin','it','rrhh'), usuarioController.actualizarRol);
+router.delete('/:id', requireAuth, requireRole('admin','it'), usuarioController.eliminar);
 // Recuperación de contraseña
 router.post('/forgot-password', usuarioController.forgotPassword);
 router.post('/reset-password/:token', usuarioController.resetPassword);
