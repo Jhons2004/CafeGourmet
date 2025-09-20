@@ -11,6 +11,8 @@ const app = express();
 const inventarioRoutes = require('./routes/inventario');
 const produccionRoutes = require('./routes/produccion');
 const usuarioRoutes = require('./routes/usuario');
+const comprasRoutes = require('./routes/compras');
+const trazabilidadRoutes = require('./routes/trazabilidad');
 
 // Conexión a MongoDB configurable por entorno
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/cafe_gourmet';
@@ -37,6 +39,8 @@ app.use(rateLimit({
 app.use('/api/inventario', inventarioRoutes);
 app.use('/api/produccion', produccionRoutes);
 app.use('/api/usuario', usuarioRoutes);
+app.use('/api/compras', comprasRoutes);
+app.use('/api/trazabilidad', trazabilidadRoutes);
 
 // Endpoint de salud para ver estado del backend/db
 app.get('/api/health', (req, res) => {
@@ -68,8 +72,10 @@ server.on('error', (err) => {
 
 process.on('unhandledRejection', (reason) => {
     console.error('Unhandled Rejection:', reason);
+    // No exit on unhandled rejection
 });
 
 process.on('uncaughtException', (err) => {
     console.error('Uncaught Exception:', err);
+    // No exit on uncaught exception for now
 });

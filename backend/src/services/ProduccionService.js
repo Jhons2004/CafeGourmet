@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const OrdenProduccion = require('../models/OrdenProduccion');
 const Grano = require('../models/Grano');
 const { ProduccionSubject, CalidadObserver, ComprasObserver } = require('../observers/ProduccionObserver');
@@ -16,8 +17,16 @@ class ProduccionService {
     return op;
   }
 
-  async listarOP() {
-    return OrdenProduccion.find().sort({ fechaCreacion: -1 });
+  async listarOP({ page = 1, pageSize = 10, estado, producto } = {}) {
+    const query = {};
+    if (estado) query.estado = estado;
+    if (producto) query.producto = new RegExp(producto, 'i');
+    const total = await OrdenProduccion.countDocuments(query);
+    const data = await OrdenProduccion.find(query)
+      .sort({ fechaCreacion: -1 })
+      .skip((page - 1) * pageSize)
+      .limit(pageSize);
+    return { data, total };
   }
 
   async avanzarEtapa(id, etapaNombre) {
@@ -31,13 +40,12 @@ class ProduccionService {
     if (requiereAutoConsumo && !etapaRef.consumoAplicado) {
       const items = (op.receta || []).map(i => ({ tipo: i.tipo, cantidad: i.cantidad }));
       if (items.length) {
-        // Validar stock suficiente de forma previa
-        await this._validarStock(items);
-        // Consumir inventario (FIFO por fechaRegistro)
-        await this._consumirInventario(items);
-        op.consumos.push(...items);
-        etapaRef.consumoAplicado = true;
-        await op.save();
+        // Transacción atómica para validar y consumir
+        await this._consumoTransaccional(items, async () => {
+          op.consumos.push(...items);
+          etapaRef.consumoAplicado = true;
+          await op.save();
+        });
       }
     }
 
@@ -52,15 +60,33 @@ class ProduccionService {
     if (!op) throw new Error('OP no encontrada');
 
     const reduceInventario = async (consumos) => {
-      await this._validarStock(consumos);
-      return this._consumirInventario(consumos);
+      return this._consumoTransaccional(consumos, async () => {
+        // side effects on OP are handled by command
+      });
     };
 
     const cmd = new RegistrarConsumoCommand(op, items, reduceInventario);
     return cmd.execute();
   }
 
-  async _consumirInventario(consumos) {
+  async _consumoTransaccional(consumos, afterConsumeCallback) {
+    const session = await mongoose.startSession();
+    session.startTransaction();
+    try {
+      await this._validarStock(consumos, session);
+      await this._consumirInventario(consumos, session);
+      if (afterConsumeCallback) await afterConsumeCallback();
+      await session.commitTransaction();
+      return true;
+    } catch (e) {
+      await session.abortTransaction();
+      throw e;
+    } finally {
+      session.endSession();
+    }
+  }
+
+  async _consumirInventario(consumos, session) {
     // Consolidar por tipo
     const requeridos = consumos.reduce((acc, it) => {
       acc[it.tipo] = (acc[it.tipo] || 0) + Number(it.cantidad || 0);
@@ -72,7 +98,7 @@ class ProduccionService {
     for (const tipo of tipos) {
       let restante = requeridos[tipo];
       if (restante <= 0) continue;
-      const docs = await Grano.find({ tipo }).sort({ fechaRegistro: 1 });
+  const docs = await Grano.find({ tipo }).sort({ fechaRegistro: 1 }).session(session || null);
       for (const d of docs) {
         if (restante <= 0) break;
         const disponible = Number(d.cantidad || 0);
@@ -80,7 +106,7 @@ class ProduccionService {
         const tomar = Math.min(disponible, restante);
         d.cantidad = disponible - tomar;
         restante -= tomar;
-        await d.save();
+        await d.save({ session });
       }
       // Si queda restante, significa que no había stock suficiente (debería estar validado arriba)
       if (restante > 0) {
@@ -92,14 +118,14 @@ class ProduccionService {
     const totales = await Grano.aggregate([
       { $match: { tipo: { $in: tipos } } },
       { $group: { _id: '$tipo', total: { $sum: '$cantidad' } } }
-    ]);
+    ]).session(session || null);
     const bajos = totales
       .filter(t => (t.total || 0) <= 10)
       .map(t => ({ tipo: t._id, cantidad: t.total }));
     if (bajos.length) this.subject.notify('CONSUMO_REGISTRADO', { items: bajos, stockBajo: true });
   }
 
-  async _validarStock(consumos) {
+  async _validarStock(consumos, session) {
     // Consolidar requeridos por tipo
     const requeridos = consumos.reduce((acc, it) => {
       const cant = Number(it.cantidad || 0);
@@ -112,7 +138,7 @@ class ProduccionService {
     const totales = await Grano.aggregate([
       { $match: { tipo: { $in: tipos } } },
       { $group: { _id: '$tipo', total: { $sum: '$cantidad' } } }
-    ]);
+    ]).session(session || null);
     const mapa = Object.fromEntries(totales.map(t => [t._id, Number(t.total || 0)]));
     const faltantes = [];
     for (const tipo of tipos) {

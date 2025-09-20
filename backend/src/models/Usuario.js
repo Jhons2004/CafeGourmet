@@ -62,6 +62,7 @@ async function seedAdmins() {
     }
 }
 
-seedAdmins();
+// Seed async but don't block
+seedAdmins().catch(console.error);
 
 module.exports = Usuario;

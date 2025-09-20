@@ -40,4 +40,9 @@ OrdenProduccionSchema.pre('save', function(next) {
   next();
 });
 
+// Indexes to optimize common queries
+OrdenProduccionSchema.index({ fechaCreacion: -1 });
+OrdenProduccionSchema.index({ estado: 1, fechaCreacion: -1 });
+OrdenProduccionSchema.index({ producto: 1, fechaCreacion: -1 });
+
 module.exports = mongoose.model('OrdenProduccion', OrdenProduccionSchema);

@@ -183,6 +183,38 @@ function App() {
     try { const r = await fetch(PROD_URL); if (r.ok) setOps(await r.json()); }
     catch (e) { console.warn('No se pudo cargar OPs', e); }
   };
+  
+  // Compras state
+  const COMPRAS_URL = '/api/compras';
+  const [proveedores, setProveedores] = useState([]);
+  const [ordenes, setOrdenes] = useState([]);
+  const [recepciones, setRecepciones] = useState([]);
+  const [newProveedor, setNewProveedor] = useState({ nombre: '', ruc: '', contacto: '', telefono: '', direccion: '', email: '' });
+  const [newOC, setNewOC] = useState({ proveedor: '', items: [{ tipo: 'arabica', cantidad: 100, precioUnitario: 3.0 }] });
+  const [newRecepcion, setNewRecepcion] = useState({ ordenCompra: '', lotes: [{ tipo: 'arabica', cantidad: 50, costoUnitario: 3.0, lote: '', fechaCosecha: '', humedad: '' }], observaciones: '' });
+  const [comprasMsg, setComprasMsg] = useState('');
+
+  const loadProveedores = async () => {
+    try { 
+      const r = await fetch(`${COMPRAS_URL}/proveedores`, { headers: token ? { Authorization: `Bearer ${token}` } : {} }); 
+      if (r.ok) setProveedores(await r.json()); 
+    } catch (e) { console.warn('No se pudo cargar proveedores', e); }
+  };
+
+  const loadOrdenes = async () => {
+    try { 
+      const r = await fetch(`${COMPRAS_URL}/ordenes`, { headers: token ? { Authorization: `Bearer ${token}` } : {} }); 
+      if (r.ok) setOrdenes(await r.json()); 
+    } catch (e) { console.warn('No se pudo cargar órdenes', e); }
+  };
+
+  const loadRecepciones = async () => {
+    try { 
+      const r = await fetch(`${COMPRAS_URL}/recepciones`, { headers: token ? { Authorization: `Bearer ${token}` } : {} }); 
+      if (r.ok) setRecepciones(await r.json()); 
+    } catch (e) { console.warn('No se pudo cargar recepciones', e); }
+  };
+  
   const handleLogout = () => {
     setUser(null);
     setPanel('inicio');
@@ -264,6 +296,7 @@ function App() {
         </div>
   <button style={{ marginBottom: 16, width: '100%' }} className="btn btn--primary" onClick={() => setPanel('inventario')}>Ir a Inventario de Granos</button>
   <button style={{ marginBottom: 16, width: '100%' }} className="btn" onClick={() => { setPanel('produccion'); loadOPs(); }}>Ir a Producción</button>
+  <button style={{ marginBottom: 16, width: '100%' }} className="btn" onClick={() => { setPanel('compras'); loadProveedores(); loadOrdenes(); loadRecepciones(); }}>Ir a Compras</button>
   {permiteConfig && (
     <button style={{ marginBottom: 16, width: '100%' }} className="btn" onClick={() => { setPanel('config'); cargarUsuarios(); }}>Configuración y Usuarios</button>
   )}
@@ -503,6 +536,284 @@ function App() {
             ))}
           </tbody>
         </table>
+      </div>
+    );
+  }
+
+  if (panel === 'compras') {
+    return (
+      <div className="form-container">
+        <div className="toolbar" style={{ marginBottom: 8 }}>
+          <h2 style={{ margin: 0 }}>Gestión de Compras</h2>
+          <button className="btn btn--secondary" onClick={() => setPanel('inicio')}>Volver</button>
+        </div>
+        <div className="panel muted" style={{ marginBottom: 12 }}>
+          Usuario activo: <b>{user.nombre}</b> ({user.rol})
+        </div>
+
+        {/* Proveedores */}
+        <div className="panel" style={{ marginBottom: 16 }}>
+          <div className="panel__title">Proveedores</div>
+          <form onSubmit={async(e) => {
+            e.preventDefault();
+            try {
+              const res = await fetch(`${COMPRAS_URL}/proveedores`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                body: JSON.stringify(newProveedor)
+              });
+              if (res.ok) {
+                setNewProveedor({ nombre: '', ruc: '', contacto: '', telefono: '', direccion: '', email: '' });
+                loadProveedores();
+                setComprasMsg('Proveedor creado exitosamente');
+              } else {
+                const data = await res.json();
+                setComprasMsg(data.error || 'Error al crear proveedor');
+              }
+            } catch (e) {
+              setComprasMsg('Error de conexión');
+            }
+          }} style={{ marginBottom: 12 }}>
+            <label>Nombre *</label>
+            <input value={newProveedor.nombre} onChange={e => setNewProveedor({...newProveedor, nombre: e.target.value})} required />
+            <label>RUC</label>
+            <input value={newProveedor.ruc} onChange={e => setNewProveedor({...newProveedor, ruc: e.target.value})} />
+            <label>Contacto</label>
+            <input value={newProveedor.contacto} onChange={e => setNewProveedor({...newProveedor, contacto: e.target.value})} />
+            <label>Teléfono</label>
+            <input value={newProveedor.telefono} onChange={e => setNewProveedor({...newProveedor, telefono: e.target.value})} />
+            <label>Email</label>
+            <input type="email" value={newProveedor.email} onChange={e => setNewProveedor({...newProveedor, email: e.target.value})} />
+            <button type="submit" className="btn btn--primary">Crear Proveedor</button>
+          </form>
+          
+          <table className="table table--zebra">
+            <thead>
+              <tr><th>Nombre</th><th>RUC</th><th>Contacto</th><th>Estado</th></tr>
+            </thead>
+            <tbody>
+              {proveedores.map(p => (
+                <tr key={p._id}>
+                  <td>{p.nombre}</td>
+                  <td>{p.ruc || '-'}</td>
+                  <td>{p.contacto || '-'}</td>
+                  <td>{p.activo ? 'Activo' : 'Inactivo'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Órdenes de Compra */}
+        <div className="panel" style={{ marginBottom: 16 }}>
+          <div className="panel__title">Órdenes de Compra</div>
+          <form onSubmit={async(e) => {
+            e.preventDefault();
+            try {
+              const res = await fetch(`${COMPRAS_URL}/ordenes`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                body: JSON.stringify(newOC)
+              });
+              if (res.ok) {
+                setNewOC({ proveedor: '', items: [{ tipo: 'arabica', cantidad: 100, precioUnitario: 3.0 }] });
+                loadOrdenes();
+                setComprasMsg('Orden de compra creada exitosamente');
+              } else {
+                const data = await res.json();
+                setComprasMsg(data.error || 'Error al crear orden');
+              }
+            } catch (e) {
+              setComprasMsg('Error de conexión');
+            }
+          }} style={{ marginBottom: 12 }}>
+            <label>Proveedor *</label>
+            <select value={newOC.proveedor} onChange={e => setNewOC({...newOC, proveedor: e.target.value})} required>
+              <option value="">Seleccione proveedor</option>
+              {proveedores.map(p => (
+                <option key={p._id} value={p._id}>{p.nombre}</option>
+              ))}
+            </select>
+            
+            <div style={{ marginTop: 12 }}>
+              <label>Items</label>
+              {newOC.items.map((item, idx) => (
+                <div key={idx} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+                  <select value={item.tipo} onChange={e => {
+                    const items = [...newOC.items];
+                    items[idx].tipo = e.target.value;
+                    setNewOC({...newOC, items});
+                  }}>
+                    <option value="arabica">Arábica</option>
+                    <option value="robusta">Robusta</option>
+                    <option value="blend">Blend</option>
+                  </select>
+                  <input type="number" placeholder="Cantidad" value={item.cantidad} onChange={e => {
+                    const items = [...newOC.items];
+                    items[idx].cantidad = Number(e.target.value);
+                    setNewOC({...newOC, items});
+                  }} />
+                  <input type="number" step="0.01" placeholder="Precio" value={item.precioUnitario} onChange={e => {
+                    const items = [...newOC.items];
+                    items[idx].precioUnitario = Number(e.target.value);
+                    setNewOC({...newOC, items});
+                  }} />
+                  <button type="button" className="btn btn--sm btn--danger" onClick={() => {
+                    setNewOC({...newOC, items: newOC.items.filter((_, i) => i !== idx)});
+                  }}>×</button>
+                </div>
+              ))}
+              <button type="button" className="btn btn--sm" onClick={() => {
+                setNewOC({...newOC, items: [...newOC.items, { tipo: 'arabica', cantidad: 100, precioUnitario: 3.0 }]});
+              }}>+ Agregar Item</button>
+            </div>
+            
+            <button type="submit" className="btn btn--primary" style={{ marginTop: 12 }}>Crear Orden</button>
+          </form>
+          
+          <table className="table table--zebra">
+            <thead>
+              <tr><th>Número</th><th>Proveedor</th><th>Estado</th><th>Items</th><th>Acciones</th></tr>
+            </thead>
+            <tbody>
+              {ordenes.map(oc => (
+                <tr key={oc._id}>
+                  <td>{oc.numero}</td>
+                  <td>{oc.proveedor?.nombre}</td>
+                  <td>{oc.estado}</td>
+                  <td>{oc.items?.length || 0}</td>
+                  <td>
+                    {oc.estado === 'borrador' && (
+                      <button className="btn btn--sm btn--primary" onClick={async() => {
+                        try {
+                          await fetch(`${COMPRAS_URL}/ordenes/${oc._id}/aprobar`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                            body: JSON.stringify({ aprobar: true })
+                          });
+                          loadOrdenes();
+                          setComprasMsg('Orden aprobada');
+                        } catch (e) {
+                          setComprasMsg('Error al aprobar');
+                        }
+                      }}>Aprobar</button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Recepciones */}
+        <div className="panel" style={{ marginBottom: 16 }}>
+          <div className="panel__title">Recepción de Lotes</div>
+          <form onSubmit={async(e) => {
+            e.preventDefault();
+            try {
+              const res = await fetch(`${COMPRAS_URL}/recepciones`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                body: JSON.stringify(newRecepcion)
+              });
+              if (res.ok) {
+                setNewRecepcion({ ordenCompra: '', lotes: [{ tipo: 'arabica', cantidad: 50, costoUnitario: 3.0, lote: '', fechaCosecha: '', humedad: '' }], observaciones: '' });
+                loadRecepciones();
+                loadOrdenes(); // refresh OC status
+                setComprasMsg('Recepción registrada exitosamente - Inventario actualizado');
+              } else {
+                const data = await res.json();
+                setComprasMsg(data.error || 'Error al registrar recepción');
+              }
+            } catch (e) {
+              setComprasMsg('Error de conexión');
+            }
+          }} style={{ marginBottom: 12 }}>
+            <label>Orden de Compra *</label>
+            <select value={newRecepcion.ordenCompra} onChange={e => setNewRecepcion({...newRecepcion, ordenCompra: e.target.value})} required>
+              <option value="">Seleccione OC aprobada</option>
+              {ordenes.filter(oc => oc.estado === 'aprobada').map(oc => (
+                <option key={oc._id} value={oc._id}>{oc.numero} - {oc.proveedor?.nombre}</option>
+              ))}
+            </select>
+            
+            <div style={{ marginTop: 12 }}>
+              <label>Lotes Recibidos</label>
+              {newRecepcion.lotes.map((lote, idx) => (
+                <div key={idx} style={{ border: '1px solid #ddd', padding: 8, marginBottom: 8, borderRadius: 4 }}>
+                  <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                    <select value={lote.tipo} onChange={e => {
+                      const lotes = [...newRecepcion.lotes];
+                      lotes[idx].tipo = e.target.value;
+                      setNewRecepcion({...newRecepcion, lotes});
+                    }}>
+                      <option value="arabica">Arábica</option>
+                      <option value="robusta">Robusta</option>
+                      <option value="blend">Blend</option>
+                    </select>
+                    <input type="number" placeholder="Cantidad" value={lote.cantidad} onChange={e => {
+                      const lotes = [...newRecepcion.lotes];
+                      lotes[idx].cantidad = Number(e.target.value);
+                      setNewRecepcion({...newRecepcion, lotes});
+                    }} />
+                    <input type="number" step="0.01" placeholder="Costo unitario" value={lote.costoUnitario} onChange={e => {
+                      const lotes = [...newRecepcion.lotes];
+                      lotes[idx].costoUnitario = Number(e.target.value);
+                      setNewRecepcion({...newRecepcion, lotes});
+                    }} />
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                    <input placeholder="Código de lote *" value={lote.lote} onChange={e => {
+                      const lotes = [...newRecepcion.lotes];
+                      lotes[idx].lote = e.target.value;
+                      setNewRecepcion({...newRecepcion, lotes});
+                    }} required />
+                    <input type="date" placeholder="Fecha cosecha" value={lote.fechaCosecha} onChange={e => {
+                      const lotes = [...newRecepcion.lotes];
+                      lotes[idx].fechaCosecha = e.target.value;
+                      setNewRecepcion({...newRecepcion, lotes});
+                    }} />
+                    <input type="number" step="0.1" placeholder="Humedad %" value={lote.humedad} onChange={e => {
+                      const lotes = [...newRecepcion.lotes];
+                      lotes[idx].humedad = Number(e.target.value);
+                      setNewRecepcion({...newRecepcion, lotes});
+                    }} />
+                  </div>
+                  <button type="button" className="btn btn--sm btn--danger" onClick={() => {
+                    setNewRecepcion({...newRecepcion, lotes: newRecepcion.lotes.filter((_, i) => i !== idx)});
+                  }}>Eliminar Lote</button>
+                </div>
+              ))}
+              <button type="button" className="btn btn--sm" onClick={() => {
+                setNewRecepcion({...newRecepcion, lotes: [...newRecepcion.lotes, { tipo: 'arabica', cantidad: 50, costoUnitario: 3.0, lote: '', fechaCosecha: '', humedad: '' }]});
+              }}>+ Agregar Lote</button>
+            </div>
+            
+            <label>Observaciones</label>
+            <textarea value={newRecepcion.observaciones} onChange={e => setNewRecepcion({...newRecepcion, observaciones: e.target.value})} />
+            
+            <button type="submit" className="btn btn--primary" style={{ marginTop: 12 }}>Registrar Recepción</button>
+          </form>
+          
+          <table className="table table--zebra">
+            <thead>
+              <tr><th>Fecha</th><th>OC</th><th>Proveedor</th><th>Lotes</th><th>Observaciones</th></tr>
+            </thead>
+            <tbody>
+              {recepciones.map(rec => (
+                <tr key={rec._id}>
+                  <td>{new Date(rec.fechaRecepcion).toLocaleDateString()}</td>
+                  <td>{rec.ordenCompra?.numero}</td>
+                  <td>{rec.proveedor?.nombre}</td>
+                  <td>{rec.lotes?.length || 0}</td>
+                  <td>{rec.observaciones || '-'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {comprasMsg && <div className="panel" style={{ color: comprasMsg.includes('Error') ? '#b23' : '#4a5' }}>{comprasMsg}</div>}
       </div>
     );
   }

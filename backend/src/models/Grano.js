@@ -12,10 +12,21 @@ const GranoSchema = new mongoose.Schema({
         required: true,
         min: 0
     },
+    lote: {
+        type: String,
+        default: null,
+        index: true
+    },
+    costoUnitario: {
+        type: Number,
+        default: 0
+    },
     proveedor: {
         type: String,
         required: true
     },
+    ubicacion: { type: String, default: 'ALM-PRINCIPAL' },
+    estado: { type: String, enum: ['activo','inactivo'], default: 'activo' },
     fechaRegistro: {
         type: Date,
         default: Date.now
@@ -23,5 +34,7 @@ const GranoSchema = new mongoose.Schema({
 });
 
 GranoSchema.index({ tipo: 1, fechaRegistro: 1 });
+GranoSchema.index({ tipo: 1, lote: 1 });
+GranoSchema.index({ estado: 1, fechaRegistro: -1 });
 
 module.exports = mongoose.model('Grano', GranoSchema);

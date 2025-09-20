@@ -8,8 +8,12 @@ module.exports = {
       res.json(op);
     } catch (e) { res.status(400).json({ error: e.message }); }
   },
-  listar: async (_req, res) => {
-    try { res.json(await produccion.listarOP()); } catch (e) { res.status(500).json({ error: e.message }); }
+  listar: async (req, res) => {
+    try {
+      const { page = 1, pageSize = 10, estado, producto } = req.query;
+      const { data, total } = await produccion.listarOP({ page: Number(page), pageSize: Number(pageSize), estado, producto });
+      res.json({ data, total, page: Number(page), pageSize: Number(pageSize) });
+    } catch (e) { res.status(500).json({ error: e.message }); }
   },
   etapa: async (req, res) => {
     try {
