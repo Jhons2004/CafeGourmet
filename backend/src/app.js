@@ -2,6 +2,9 @@ const express = require('express');
 const path = require('path');
 const mongoose = require('mongoose');
 const cors = require('cors');
+const helmet = require('helmet');
+const morgan = require('morgan');
+const rateLimit = require('express-rate-limit');
 require('dotenv').config();
 const app = express();
 
@@ -21,6 +24,14 @@ mongoose.connect(MONGODB_URI)
 
 app.use(cors());
 app.use(express.json());
+app.use(helmet({
+    contentSecurityPolicy: false,
+}));
+app.use(morgan('dev'));
+app.use(rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 300, // limite generoso para uso interno
+}));
 
 
 app.use('/api/inventario', inventarioRoutes);

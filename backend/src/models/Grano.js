@@ -22,4 +22,6 @@ const GranoSchema = new mongoose.Schema({
     }
 });
 
+GranoSchema.index({ tipo: 1, fechaRegistro: 1 });
+
 module.exports = mongoose.model('Grano', GranoSchema);

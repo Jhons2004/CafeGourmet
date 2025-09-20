@@ -3,7 +3,7 @@ const bcrypt = require('bcryptjs');
 
 const UsuarioSchema = new mongoose.Schema({
     nombre: { type: String, required: true },
-    email: { type: String, required: true, unique: true },
+    email: { type: String, required: true, unique: true, index: true },
     password: { type: String, required: true },
     rol: { type: String, enum: ['admin', 'it', 'rrhh', 'operador'], default: 'operador' },
     // Campos para recuperación de contraseña
@@ -23,21 +23,41 @@ UsuarioSchema.methods.compararPassword = function(password) {
 
 const Usuario = mongoose.model('Usuario', UsuarioSchema);
 
-// Seed: crear dos usuarios admin si no existen
+// Seed: crear dos usuarios admin con emails formales y migrar legacy si existieran
 async function seedAdmins() {
-    const admins = [
-        { nombre: 'Admin 1', email: 'Admin1', password: '12345678', rol: 'admin' },
-        { nombre: 'Admin 2', email: 'Admin2', password: '12345678', rol: 'admin' },
+    const targets = [
+        { nombre: 'Admin 1', email: 'admin1@cafe.com', legacyEmails: ['Admin1'], password: '12345678', rol: 'admin' },
+        { nombre: 'Admin 2', email: 'admin2@cafe.com', legacyEmails: ['Admin2'], password: '12345678', rol: 'admin' },
     ];
 
-    for (const a of admins) {
-        const existe = await Usuario.findOne({ email: a.email });
-        if (!existe) {
-            const u = new Usuario(a);
+    for (const t of targets) {
+        // 1) ¿Ya existe con email objetivo?
+        let doc = await Usuario.findOne({ email: t.email });
+        if (doc) {
+            console.log(`Usuario admin ya existe: ${t.email}`);
+            continue;
+        }
+
+        // 2) ¿Existe con email legacy? migrar
+        let migrated = false;
+        for (const legacyEmail of t.legacyEmails) {
+            const legacy = await Usuario.findOne({ email: legacyEmail });
+            if (legacy) {
+                legacy.email = t.email;
+                if (!legacy.nombre) legacy.nombre = t.nombre;
+                legacy.rol = 'admin';
+                await legacy.save();
+                console.log(`Usuario admin migrado de ${legacyEmail} a ${t.email}`);
+                migrated = true;
+                break;
+            }
+        }
+
+        // 3) Si no existe ni legacy, crear
+        if (!migrated) {
+            const u = new Usuario({ nombre: t.nombre, email: t.email, password: t.password, rol: 'admin' });
             await u.save();
-            console.log(`Usuario admin creado: ${a.email}`);
-        } else {
-            console.log(`Usuario admin ya existe: ${a.email}`);
+            console.log(`Usuario admin creado: ${t.email}`);
         }
     }
 }
