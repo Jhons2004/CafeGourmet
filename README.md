@@ -122,3 +122,24 @@ Para exponer en LAN, usa `HOST=0.0.0.0` y abre el puerto 3000 en el firewall.
    - Eliminar usuario.
 
 Nota: Todas estas acciones requieren token válido con rol autorizado.
+
+## Servir Local vs LAN (Windows)
+
+Dispones de scripts en `scripts/` para alternar entre modo local (solo en tu PC) y expuesto en red local (LAN):
+
+- `run-as-admin-configure-lan.bat` (recomendado):
+   - Eleva privilegios (UAC) y ejecuta `configure-lan-server.ps1`.
+   - Cambia `HOST=0.0.0.0` en `backend/.env`, compila Frontend, abre firewall TCP:3000 (si Admin), inicia el backend y muestra las URLs LAN a compartir (por ejemplo `http://192.168.1.155:3000`).
+
+- `run-as-admin-disable-lan.bat`:
+   - Eleva privilegios y ejecuta `disable-lan.ps1`.
+   - Cambia `HOST=127.0.0.1` (solo local), intenta quitar la regla de firewall TCP:3000 (si Admin), reinicia el backend y valida que solo responda en `127.0.0.1`.
+
+Validación rápida:
+- LAN: desde otro equipo/telefono en la misma red, abre `http://<tu-ip-lan>:3000/api/health` (debe devolver `{"ok":true,"db":1}`).
+- Local: `http://127.0.0.1:3000/api/health` debe responder; `http://<tu-ip-lan>:3000/api/health` NO debe responder.
+
+Notas y solución de problemas:
+- Asegúrate de que la red esté en Perfil "Privado" para LAN (el script puede sugerir cambiarlo si ejecutas como Admin).
+- Algunos routers activan "AP/Client Isolation"; si está activo, los clientes no se ven entre sí.
+- Si necesitas exponer fuera de la red (Internet), usa un túnel temporal como `ngrok http 3000`.
