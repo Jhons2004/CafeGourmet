@@ -1,6 +1,6 @@
 const Joi = require('joi');
 
-const roles = ['admin','it','rrhh','operador'];
+const roles = ['admin','it','rrhh','operador','auditor'];
 
 exports.registrar = Joi.object({
   nombre: Joi.string().min(2).max(80).required(),

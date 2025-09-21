@@ -28,7 +28,7 @@ module.exports = {
         try {
             const { id } = req.params;
             const { rol } = req.body; // 'admin' | 'it' | 'rrhh' | 'operador'
-            if (!['admin', 'it', 'rrhh', 'operador'].includes(rol)) {
+            if (!['admin', 'it', 'rrhh', 'operador', 'auditor'].includes(rol)) {
                 return res.status(400).json({ error: 'Rol inválido' });
             }
             const usuario = await Usuario.findByIdAndUpdate(id, { rol }, { new: true, projection: { password: 0, resetToken: 0, resetExpires: 0 } });

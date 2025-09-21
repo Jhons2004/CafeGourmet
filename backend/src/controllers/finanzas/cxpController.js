@@ -1,5 +1,7 @@
 const CxP = require('../../models/CuentaPorPagar');
 const tc = require('./tcController');
+const path = require('path');
+const fs = require('fs');
 
 module.exports = {
 	listar: async (req, res) => {
@@ -65,6 +67,23 @@ module.exports = {
 			await doc.save();
 			res.json(doc);
 		} catch (e) { res.status(400).json({ error: e.message }); }
+	}
+,
+	descargarAdjunto: async (req, res) => {
+		try {
+			const { id } = req.params;
+			const doc = await CxP.findById(id).lean();
+			if (!doc) return res.status(404).json({ error: 'No encontrado' });
+			const adj = doc.facturaProveedor && doc.facturaProveedor.adjuntoUrl;
+			if (!adj) return res.status(404).json({ error: 'Sin adjunto' });
+			// Mapear /uploads/... a ruta física
+			const baseUploads = path.resolve(__dirname, '../../../uploads');
+			const rel = String(adj).replace(/^\/?uploads\//, '');
+			const abs = path.join(baseUploads, rel);
+			if (!abs.startsWith(baseUploads)) return res.status(400).json({ error: 'Ruta inválida' });
+			if (!fs.existsSync(abs)) return res.status(404).json({ error: 'Archivo no encontrado' });
+			return res.sendFile(abs);
+		} catch (e) { res.status(500).json({ error: e.message }); }
 	}
 };
 

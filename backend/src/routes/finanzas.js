@@ -1,6 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const { requireAuth, requireRole } = require('../middleware/auth');
+const { requirePermission } = require('../middleware/permissions');
+const { resources, actions } = require('../permissions/policies');
+const { audit } = require('../middleware/audit');
 const validate = require('../middleware/validate');
 const v = require('../validators/finanzas');
 
@@ -41,12 +44,12 @@ const upload = multer({
 });
 
 // Cuentas por pagar
-router.get('/cxp', requireAuth, requireRole('admin','it','operador'), cxp.listar);
-router.post('/cxp', requireAuth, requireRole('admin','it'), validate(v.cxp.crear), cxp.crear);
-router.post('/cxp/:id/pago', requireAuth, requireRole('admin','it'), validate(v.paramsId, 'params'), validate(v.cxp.pago), cxp.pagar);
-router.post('/cxp/:id/anular', requireAuth, requireRole('admin','it'), validate(v.paramsId, 'params'), cxp.anular);
-router.post('/cxp/:id/factura', requireAuth, requireRole('admin','it'), validate(v.paramsId, 'params'), validate(v.cxp.factura), cxp.actualizarFactura);
-router.post('/cxp/:id/factura/adjunto', requireAuth, requireRole('admin','it'), validate(v.paramsId, 'params'), upload.single('archivo'), async (req, res) => {
+router.get('/cxp', requireAuth, requirePermission(resources.FINANZAS_CXP, actions.VIEW), cxp.listar);
+router.post('/cxp', requireAuth, requirePermission(resources.FINANZAS_CXP, actions.CREATE), validate(v.cxp.crear), audit(resources.FINANZAS_CXP, actions.CREATE), cxp.crear);
+router.post('/cxp/:id/pago', requireAuth, requirePermission(resources.FINANZAS_CXP, actions.PAY), validate(v.paramsId, 'params'), validate(v.cxp.pago), audit(resources.FINANZAS_CXP, actions.PAY), cxp.pagar);
+router.post('/cxp/:id/anular', requireAuth, requirePermission(resources.FINANZAS_CXP, actions.VOID), validate(v.paramsId, 'params'), audit(resources.FINANZAS_CXP, actions.VOID), cxp.anular);
+router.post('/cxp/:id/factura', requireAuth, requirePermission(resources.FINANZAS_CXP, actions.UPDATE), validate(v.paramsId, 'params'), validate(v.cxp.factura), audit(resources.FINANZAS_CXP, actions.UPDATE), cxp.actualizarFactura);
+router.post('/cxp/:id/factura/adjunto', requireAuth, requirePermission(resources.FINANZAS_CXP, actions.UPLOAD), validate(v.paramsId, 'params'), upload.single('archivo'), audit(resources.FINANZAS_CXP, actions.UPLOAD), async (req, res) => {
 	try {
 		if (!req.file) return res.status(400).json({ error: 'Archivo requerido (campo: archivo)' });
 		const relativeUrl = `/uploads/invoices/${req.file.filename}`;
@@ -56,17 +59,20 @@ router.post('/cxp/:id/factura/adjunto', requireAuth, requireRole('admin','it'), 
 	} catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// Descarga autenticada del adjunto de factura de proveedor
+router.get('/cxp/:id/factura/adjunto', requireAuth, requirePermission(resources.FINANZAS_CXP, actions.DOWNLOAD), validate(v.paramsId, 'params'), audit(resources.FINANZAS_CXP, actions.DOWNLOAD), cxp.descargarAdjunto);
+
 // Cuentas por cobrar
-router.get('/cxc', requireAuth, requireRole('admin','it','operador'), cxc.listar);
-router.post('/cxc', requireAuth, requireRole('admin','it'), validate(v.cxc.crear), cxc.crear);
-router.post('/cxc/:id/cobro', requireAuth, requireRole('admin','it'), validate(v.paramsId, 'params'), validate(v.cxc.cobro), cxc.cobrar);
-router.post('/cxc/:id/anular', requireAuth, requireRole('admin','it'), validate(v.paramsId, 'params'), cxc.anular);
+router.get('/cxc', requireAuth, requirePermission(resources.FINANZAS_CXC, actions.VIEW), cxc.listar);
+router.post('/cxc', requireAuth, requirePermission(resources.FINANZAS_CXC, actions.CREATE), validate(v.cxc.crear), audit(resources.FINANZAS_CXC, actions.CREATE), cxc.crear);
+router.post('/cxc/:id/cobro', requireAuth, requirePermission(resources.FINANZAS_CXC, actions.COLLECT), validate(v.paramsId, 'params'), validate(v.cxc.cobro), audit(resources.FINANZAS_CXC, actions.COLLECT), cxc.cobrar);
+router.post('/cxc/:id/anular', requireAuth, requirePermission(resources.FINANZAS_CXC, actions.VOID), validate(v.paramsId, 'params'), audit(resources.FINANZAS_CXC, actions.VOID), cxc.anular);
 
 // Analytics
-router.get('/aging', requireAuth, requireRole('admin','it','operador'), analytics.aging);
+router.get('/aging', requireAuth, requirePermission(resources.FINANZAS_AGING, actions.VIEW), analytics.aging);
 
 // Tipo de cambio (Banguat), acceso general autenticado
-router.get('/tc', requireAuth, requireRole('admin','it','operador'), tc.obtener);
+router.get('/tc', requireAuth, requirePermission(resources.FINANZAS_TC, actions.VIEW), tc.obtener);
 
 module.exports = router;
 

@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { requireAuth, requireRole } = require('../middleware/auth');
+const { policyForRole } = require('../permissions/policies');
 const validate = require('../middleware/validate');
 const schema = require('../validators/usuario');
 const rateLimit = require('express-rate-limit');
@@ -17,5 +18,11 @@ router.post('/forgot-password', validate(schema.forgotPassword), usuarioControll
 router.post('/reset-password/:token', validate(schema.resetPassword), usuarioController.resetPassword);
 // Cambio simple de contraseña (sin token)
 router.post('/reset-password-simple', validate(schema.resetPasswordSimple), usuarioController.resetPasswordSimple);
+
+// Permisos del rol actual (para UI de menú/permisos)
+router.get('/permisos', requireAuth, (req, res)=>{
+	const rol = req.user?.rol || 'operador';
+	return res.json({ rol, permisos: policyForRole(rol) });
+});
 
 module.exports = router;

@@ -5,7 +5,7 @@ const UsuarioSchema = new mongoose.Schema({
     nombre: { type: String, required: true },
     email: { type: String, required: true, unique: true, index: true },
     password: { type: String, required: true },
-    rol: { type: String, enum: ['admin', 'it', 'rrhh', 'operador'], default: 'operador' },
+    rol: { type: String, enum: ['admin', 'it', 'rrhh', 'operador', 'auditor'], default: 'operador' },
     // Campos para recuperación de contraseña
     resetToken: { type: String, default: null },
     resetExpires: { type: Date, default: null }
