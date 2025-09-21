@@ -298,7 +298,7 @@ function App() {
   const [cxpForm, setCxpForm] = useState({ proveedorId:'', ordenCompraId:'', fechaVencimiento:'', moneda:'GTQ', monto:'' });
   const [cxcForm, setCxcForm] = useState({ clienteId:'', facturaId:'', fechaVencimiento:'', moneda:'GTQ', monto:'' });
   const [aging, setAging] = useState(null);
-  const [facturaProvModal, setFacturaProvModal] = useState({ open:false, cxpId:'', numero:'', fecha:'', adjuntoUrl:'', observaciones:'', tcUsado:'', archivo:null, uploading:false });
+  const [facturaProvModal, setFacturaProvModal] = useState({ open:false, cxpId:'', numero:'', fecha:'', adjuntoUrl:'', observaciones:'', tcUsado:'', tcFuente:'', tcFecha:'', archivo:null, uploading:false, progress:0, errorMsg:'' });
 
   const loadFinanzas = async ()=>{
     try { const h = token? { Authorization:`Bearer ${token}`, 'Content-Type':'application/json' } : { 'Content-Type':'application/json' };
@@ -341,23 +341,51 @@ function App() {
   };
   const subirAdjuntoFacturaProv = async ()=>{
     try{
-      if(!facturaProvModal.archivo) return;
-      setFacturaProvModal(prev=> ({ ...prev, uploading:true }));
-      const fd = new FormData();
-      fd.append('archivo', facturaProvModal.archivo);
-      const r = await fetch(`${FINANZAS_URL}/cxp/${facturaProvModal.cxpId}/factura/adjunto`, {
-        method:'POST',
-        headers: token? { Authorization: `Bearer ${token}` } : undefined,
-        body: fd
-      });
-      if (r.ok){
-        const doc = await r.json();
-        const url = (doc && doc.facturaProveedor && doc.facturaProveedor.adjuntoUrl) || '';
-        setFacturaProvModal(prev=> ({ ...prev, adjuntoUrl: url, archivo:null, uploading:false }));
-      } else {
-        setFacturaProvModal(prev=> ({ ...prev, uploading:false }));
+      const file = facturaProvModal.archivo;
+      if(!file) return;
+      // Validación previa: tipo y tamaño
+      const allowed = ['application/pdf','image/jpeg','image/png'];
+      if (!allowed.includes(file.type)) {
+        setFacturaProvModal(prev=> ({ ...prev, errorMsg:'Tipo de archivo no permitido. Usa PDF/JPG/PNG.' }));
+        return;
       }
-    } catch { setFacturaProvModal(prev=> ({ ...prev, uploading:false })); }
+      if (file.size > 10 * 1024 * 1024) { // 10 MB
+        setFacturaProvModal(prev=> ({ ...prev, errorMsg:'Archivo demasiado grande (máx 10 MB).' }));
+        return;
+      }
+      setFacturaProvModal(prev=> ({ ...prev, uploading:true, progress:0, errorMsg:'' }));
+      const fd = new FormData();
+      fd.append('archivo', file);
+      // Usar XHR para progreso
+      await new Promise((resolve)=>{
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', `${FINANZAS_URL}/cxp/${facturaProvModal.cxpId}/factura/adjunto`);
+        if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+        xhr.upload.onprogress = (ev)=>{
+          if (ev.lengthComputable) {
+            const p = Math.round((ev.loaded / ev.total) * 100);
+            setFacturaProvModal(prev=> ({ ...prev, progress: p }));
+          }
+        };
+        xhr.onreadystatechange = ()=>{
+          if (xhr.readyState === 4) {
+            try {
+              if (xhr.status >= 200 && xhr.status < 300) {
+                const doc = JSON.parse(xhr.responseText || '{}');
+                const url = (doc && doc.facturaProveedor && doc.facturaProveedor.adjuntoUrl) || '';
+                setFacturaProvModal(prev=> ({ ...prev, adjuntoUrl: url, archivo:null, uploading:false, progress:100 }));
+              } else {
+                setFacturaProvModal(prev=> ({ ...prev, uploading:false, errorMsg: xhr.responseText || 'Error al subir.' }));
+              }
+            } catch {
+              setFacturaProvModal(prev=> ({ ...prev, uploading:false, errorMsg:'Error al procesar respuesta.' }));
+            }
+            resolve();
+          }
+        };
+        xhr.send(fd);
+      });
+    } catch { setFacturaProvModal(prev=> ({ ...prev, uploading:false, errorMsg:'Error inesperado al subir.' })); }
   };
   const cobrarCxc = async (id)=>{ const monto = Number(prompt('Monto a cobrar:','0')); if(!monto) return; try{ const r = await fetch(`${FINANZAS_URL}/cxc/${id}/cobro`, { method:'POST', headers:{ 'Content-Type':'application/json', ...(token? { Authorization:`Bearer ${token}` }: {}) }, body: JSON.stringify({ monto }) }); if(r.ok) await loadFinanzas(); } catch { /*noop*/ } };
   const anularCxc = async (id)=>{ if(!confirm('¿Anular esta CxC?')) return; try{ const r = await fetch(`${FINANZAS_URL}/cxc/${id}/anular`, { method:'POST', headers: token? { Authorization:`Bearer ${token}` } : {} }); if(r.ok) await loadFinanzas(); } catch { /*noop*/ } };
@@ -512,7 +540,7 @@ function App() {
               <div className="kpi"><div className="kpi__label">Referencia</div><div className="kpi__value">Q {Number(tc.referencia||0).toFixed(4)} / $ 1</div></div>
               {tc.compra!=null && <div className="kpi"><div className="kpi__label">Compra</div><div className="kpi__value">Q {Number(tc.compra||0).toFixed(4)}</div></div>}
               {tc.venta!=null && <div className="kpi"><div className="kpi__label">Venta</div><div className="kpi__value">Q {Number(tc.venta||0).toFixed(4)}</div></div>}
-              <div className="muted" style={{ fontSize:12 }}>Fecha: {tc.fecha||'--'} · Fuente: Banguat</div>
+              <div className="muted" style={{ fontSize:12 }}>Fecha: {tc.fecha||'--'} · Fuente: {tc.fuente || 'Banguat'}</div>
             </div>
           )}
         </div>
@@ -620,6 +648,13 @@ function App() {
                     <div style={{ display:'flex', alignItems:'center', gap:6 }}>
                       <span>{i.facturaProveedor?.numero || '-'}</span>
                       {i.facturaProveedor?.fecha && <span className="muted" style={{ fontSize:12 }}>{String(i.facturaProveedor.fecha).slice(0,10)}</span>}
+                      {i.facturaProveedor?.tcUsado != null && (
+                        <span className="muted" style={{ fontSize:11 }}>
+                          TC: {Number(i.facturaProveedor.tcUsado).toFixed(4)}
+                          {i.facturaProveedor.tcFuente ? ` · ${i.facturaProveedor.tcFuente}` : ''}
+                          {i.facturaProveedor.tcFecha ? ` · ${String(i.facturaProveedor.tcFecha).slice(0,10)}` : ''}
+                        </span>
+                      )}
                       {(i.facturaProveedor?.numero || i.facturaProveedor?.adjuntoUrl) && (
                         <span style={{ background:'#d4edda', color:'#155724', padding:'2px 6px', borderRadius:10, fontSize:11 }}>✓ Factura</span>
                       )}
@@ -633,8 +668,12 @@ function App() {
                           adjuntoUrl: f.adjuntoUrl || '',
                           observaciones: f.observaciones || '',
                           tcUsado: f.tcUsado != null ? String(f.tcUsado) : '',
+                          tcFuente: f.tcFuente || '',
+                          tcFecha: f.tcFecha ? String(f.tcFecha).slice(0,10) : '',
                           archivo: null,
-                          uploading: false
+                          uploading: false,
+                          progress: 0,
+                          errorMsg: ''
                         });
                       }}>Factura</button>
                     </div>
@@ -655,7 +694,7 @@ function App() {
             <div className="modal__content">
               <div className="modal__header">
                 <div className="modal__title">Factura de Proveedor</div>
-                <button className="btn btn--secondary" onClick={()=> setFacturaProvModal({ open:false, cxpId:'', numero:'', fecha:'', adjuntoUrl:'', observaciones:'', tcUsado:'' })}>Cerrar</button>
+                <button className="btn btn--secondary" onClick={()=> setFacturaProvModal({ open:false, cxpId:'', numero:'', fecha:'', adjuntoUrl:'', observaciones:'', tcUsado:'', tcFuente:'', tcFecha:'', archivo:null, uploading:false, progress:0, errorMsg:'' })}>Cerrar</button>
               </div>
               <div>
                 <label>Número</label>
@@ -670,14 +709,22 @@ function App() {
                   </div>
                 ) : (
                   <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6 }}>
-                    <input type="file" onChange={e=> setFacturaProvModal({ ...facturaProvModal, archivo: e.target.files?.[0] || null })} />
-                    <button type="button" className="btn" disabled={!facturaProvModal.archivo || facturaProvModal.uploading} onClick={subirAdjuntoFacturaProv}>{facturaProvModal.uploading? 'Subiendo…':'Subir'}</button>
+                    <input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={e=> setFacturaProvModal({ ...facturaProvModal, archivo: e.target.files?.[0] || null, errorMsg:'' })} />
+                    <button type="button" className="btn" disabled={!facturaProvModal.archivo || facturaProvModal.uploading} onClick={subirAdjuntoFacturaProv}>{facturaProvModal.uploading? `Subiendo… ${facturaProvModal.progress}%`:'Subir'}</button>
                   </div>
                 )}
+                {facturaProvModal.errorMsg && <div className="panel" style={{ color:'#b23', margin:'6px 0' }}>{facturaProvModal.errorMsg}</div>}
                 <label>Observaciones</label>
                 <textarea rows="2" value={facturaProvModal.observaciones} onChange={e=> setFacturaProvModal({ ...facturaProvModal, observaciones: e.target.value })} />
                 <label>TC usado (opcional)</label>
                 <input type="number" step="0.0001" value={facturaProvModal.tcUsado} onChange={e=> setFacturaProvModal({ ...facturaProvModal, tcUsado: e.target.value })} />
+                {(facturaProvModal.tcFuente || facturaProvModal.tcFecha) && (
+                  <div className="muted" style={{ fontSize:12, marginTop:4 }}>
+                    {facturaProvModal.tcFuente && <span>Fuente: {facturaProvModal.tcFuente}</span>}
+                    {facturaProvModal.tcFuente && facturaProvModal.tcFecha && ' · '}
+                    {facturaProvModal.tcFecha && <span>Fecha TC: {facturaProvModal.tcFecha}</span>}
+                  </div>
+                )}
               </div>
               <div className="modal__footer">
                 <button className="btn btn--primary" onClick={guardarFacturaProv}>Guardar</button>
