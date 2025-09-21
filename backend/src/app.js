@@ -59,6 +59,8 @@ app.get('/api/health', (req, res) => {
 
 // Servir uploads estáticos (adjuntos, facturas, etc.)
 const uploadsDir = path.resolve(__dirname, '../uploads');
+// Asegurar carpeta de uploads
+try { require('fs').mkdirSync(path.join(uploadsDir, 'invoices'), { recursive: true }); } catch {}
 app.use('/uploads', express.static(uploadsDir));
 
 // Servir frontend (build de Vite) desde dist

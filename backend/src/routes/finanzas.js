@@ -18,12 +18,27 @@ if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 const storage = multer.diskStorage({
 	destination: (req, file, cb) => cb(null, uploadDir),
 	filename: (req, file, cb) => {
-		const ext = path.extname(file.originalname) || '.bin';
-		const name = `cxp_${req.params.id}_${Date.now()}${ext}`;
+		const ext = (path.extname(file.originalname) || '.bin').toLowerCase();
+		// Nombre seguro: cxp_<id>_<timestamp><ext>
+		const safeId = String(req.params.id || 'na').replace(/[^a-zA-Z0-9_-]/g, '');
+		const name = `cxp_${safeId}_${Date.now()}${ext}`;
 		cb(null, name);
 	}
 });
-const upload = multer({ storage });
+
+const ALLOWED_MIMES = new Set(['application/pdf', 'image/jpeg', 'image/png']);
+const ALLOWED_EXTS = new Set(['.pdf', '.jpg', '.jpeg', '.png']);
+const upload = multer({
+	storage,
+	limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB
+	fileFilter: (req, file, cb) => {
+		const ext = (path.extname(file.originalname) || '').toLowerCase();
+		if (!ALLOWED_MIMES.has(file.mimetype) || !ALLOWED_EXTS.has(ext)) {
+			return cb(new Error('Tipo de archivo no permitido. Use PDF/JPG/PNG'));
+		}
+		cb(null, true);
+	}
+});
 
 // Cuentas por pagar
 router.get('/cxp', requireAuth, requireRole('admin','it','operador'), cxp.listar);
@@ -35,7 +50,8 @@ router.post('/cxp/:id/factura/adjunto', requireAuth, requireRole('admin','it'), 
 	try {
 		if (!req.file) return res.status(400).json({ error: 'Archivo requerido (campo: archivo)' });
 		const relativeUrl = `/uploads/invoices/${req.file.filename}`;
-		req.body = { numero: undefined, fecha: undefined, observaciones: undefined, tcUsado: undefined, adjuntoUrl: relativeUrl };
+		// No sobrescribir otros campos de factura: solo adjuntoUrl
+		req.body = { adjuntoUrl: relativeUrl };
 		return cxp.actualizarFactura(req, res);
 	} catch (e) { res.status(500).json({ error: e.message }); }
 });

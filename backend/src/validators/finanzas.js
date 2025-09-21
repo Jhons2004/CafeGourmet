@@ -16,9 +16,11 @@ module.exports = {
 		factura: Joi.object({
 			numero: Joi.string().allow('', null),
 			fecha: Joi.date().optional(),
-			adjuntoUrl: Joi.string().uri().allow('', null),
+			adjuntoUrl: Joi.string().pattern(/^\/?uploads\//).message('adjuntoUrl inválido').allow('', null),
 			observaciones: Joi.string().allow('', null),
-			tcUsado: Joi.number().positive().allow(null)
+			tcUsado: Joi.number().positive().allow(null),
+			tcFuente: Joi.string().optional().allow('', null),
+			tcFecha: Joi.date().optional()
 		})
 	},
 	cxc: {

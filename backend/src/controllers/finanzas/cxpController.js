@@ -39,16 +39,29 @@ module.exports = {
 			const { numero, fecha, adjuntoUrl, observaciones, tcUsado } = req.body;
 			const doc = await CxP.findById(id); if (!doc) return res.status(404).json({ error: 'No encontrado' });
 			let tcFinal = tcUsado;
+			let tcFuente = undefined;
+			let tcFecha = undefined;
 			if ((tcFinal === undefined || tcFinal === null) && doc.moneda === 'USD') {
 				try {
 					const data = await tc.getCached(false);
 					// Preferir compra para CxP; si no viene, usar referencia o venta
 					tcFinal = data.compra || data.referencia || data.venta || undefined;
+					if (tcFinal !== undefined) { tcFuente = data.fuente || 'Banguat'; tcFecha = data.fecha ? new Date(data.fecha) : new Date(); }
 				} catch (e) {
 					// si falla, dejamos tcFinal como undefined
 				}
 			}
-			doc.facturaProveedor = { numero, fecha, adjuntoUrl, observaciones, tcUsado: tcFinal };
+			// Merge incremental: no perder otros campos existentes de facturaProveedor
+			doc.facturaProveedor = {
+				...(doc.facturaProveedor || {}),
+				...(numero !== undefined ? { numero } : {}),
+				...(fecha !== undefined ? { fecha } : {}),
+				...(adjuntoUrl !== undefined ? { adjuntoUrl } : {}),
+				...(observaciones !== undefined ? { observaciones } : {}),
+				...(tcFinal !== undefined ? { tcUsado: tcFinal } : {}),
+				...(tcFuente !== undefined ? { tcFuente } : {}),
+				...(tcFecha !== undefined ? { tcFecha } : {})
+			};
 			await doc.save();
 			res.json(doc);
 		} catch (e) { res.status(400).json({ error: e.message }); }

@@ -10,7 +10,9 @@ const FacturaProveedorSchema = new mongoose.Schema({
 	fecha: { type: Date },
 	adjuntoUrl: { type: String },
 	observaciones: { type: String },
-	tcUsado: { type: Number } // Tipo de cambio usado si la factura es en USD
+	tcUsado: { type: Number }, // Tipo de cambio usado si la factura es en USD
+	tcFuente: { type: String }, // Fuente del tipo de cambio (e.g., Banguat ...)
+	tcFecha: { type: Date } // Fecha del tipo de cambio utilizado
 }, { _id: false });
 
 const CxPSchema = new mongoose.Schema({
@@ -28,6 +30,11 @@ const CxPSchema = new mongoose.Schema({
 CxPSchema.index({ proveedor: 1 });
 CxPSchema.index({ estado: 1 });
 CxPSchema.index({ fechaVencimiento: 1 });
+// Índice único parcial: mismo proveedor + número de factura no debe repetirse cuando numero existe
+CxPSchema.index(
+	{ proveedor: 1, 'facturaProveedor.numero': 1 },
+	{ unique: true, partialFilterExpression: { 'facturaProveedor.numero': { $exists: true, $type: 'string' } } }
+);
 
 module.exports = mongoose.model('CuentaPorPagar', CxPSchema);
 
