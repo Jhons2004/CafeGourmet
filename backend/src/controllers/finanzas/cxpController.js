@@ -1,4 +1,5 @@
 const CxP = require('../../models/CuentaPorPagar');
+const tc = require('./tcController');
 
 module.exports = {
 	listar: async (req, res) => {
@@ -37,7 +38,17 @@ module.exports = {
 			const { id } = req.params;
 			const { numero, fecha, adjuntoUrl, observaciones, tcUsado } = req.body;
 			const doc = await CxP.findById(id); if (!doc) return res.status(404).json({ error: 'No encontrado' });
-			doc.facturaProveedor = { numero, fecha, adjuntoUrl, observaciones, tcUsado };
+			let tcFinal = tcUsado;
+			if ((tcFinal === undefined || tcFinal === null) && doc.moneda === 'USD') {
+				try {
+					const data = await tc.getCached(false);
+					// Preferir compra para CxP; si no viene, usar referencia o venta
+					tcFinal = data.compra || data.referencia || data.venta || undefined;
+				} catch (e) {
+					// si falla, dejamos tcFinal como undefined
+				}
+			}
+			doc.facturaProveedor = { numero, fecha, adjuntoUrl, observaciones, tcUsado: tcFinal };
 			await doc.save();
 			res.json(doc);
 		} catch (e) { res.status(400).json({ error: e.message }); }

@@ -298,7 +298,7 @@ function App() {
   const [cxpForm, setCxpForm] = useState({ proveedorId:'', ordenCompraId:'', fechaVencimiento:'', moneda:'GTQ', monto:'' });
   const [cxcForm, setCxcForm] = useState({ clienteId:'', facturaId:'', fechaVencimiento:'', moneda:'GTQ', monto:'' });
   const [aging, setAging] = useState(null);
-  const [facturaProvModal, setFacturaProvModal] = useState({ open:false, cxpId:'', numero:'', fecha:'', adjuntoUrl:'', observaciones:'', tcUsado:'' });
+  const [facturaProvModal, setFacturaProvModal] = useState({ open:false, cxpId:'', numero:'', fecha:'', adjuntoUrl:'', observaciones:'', tcUsado:'', archivo:null, uploading:false });
 
   const loadFinanzas = async ()=>{
     try { const h = token? { Authorization:`Bearer ${token}`, 'Content-Type':'application/json' } : { 'Content-Type':'application/json' };
@@ -336,8 +336,28 @@ function App() {
         tcUsado: facturaProvModal.tcUsado ? Number(facturaProvModal.tcUsado) : undefined
       };
       const r = await fetch(`${FINANZAS_URL}/cxp/${facturaProvModal.cxpId}/factura`, { method:'POST', headers:{ 'Content-Type':'application/json', ...(token? { Authorization:`Bearer ${token}` } : {}) }, body: JSON.stringify(payload) });
-      if(r.ok){ setFacturaProvModal({ open:false, cxpId:'', numero:'', fecha:'', adjuntoUrl:'', observaciones:'', tcUsado:'' }); await loadFinanzas(); }
+      if(r.ok){ setFacturaProvModal({ open:false, cxpId:'', numero:'', fecha:'', adjuntoUrl:'', observaciones:'', tcUsado:'', archivo:null, uploading:false }); await loadFinanzas(); }
     } catch { /* noop */ }
+  };
+  const subirAdjuntoFacturaProv = async ()=>{
+    try{
+      if(!facturaProvModal.archivo) return;
+      setFacturaProvModal(prev=> ({ ...prev, uploading:true }));
+      const fd = new FormData();
+      fd.append('archivo', facturaProvModal.archivo);
+      const r = await fetch(`${FINANZAS_URL}/cxp/${facturaProvModal.cxpId}/factura/adjunto`, {
+        method:'POST',
+        headers: token? { Authorization: `Bearer ${token}` } : undefined,
+        body: fd
+      });
+      if (r.ok){
+        const doc = await r.json();
+        const url = (doc && doc.facturaProveedor && doc.facturaProveedor.adjuntoUrl) || '';
+        setFacturaProvModal(prev=> ({ ...prev, adjuntoUrl: url, archivo:null, uploading:false }));
+      } else {
+        setFacturaProvModal(prev=> ({ ...prev, uploading:false }));
+      }
+    } catch { setFacturaProvModal(prev=> ({ ...prev, uploading:false })); }
   };
   const cobrarCxc = async (id)=>{ const monto = Number(prompt('Monto a cobrar:','0')); if(!monto) return; try{ const r = await fetch(`${FINANZAS_URL}/cxc/${id}/cobro`, { method:'POST', headers:{ 'Content-Type':'application/json', ...(token? { Authorization:`Bearer ${token}` }: {}) }, body: JSON.stringify({ monto }) }); if(r.ok) await loadFinanzas(); } catch { /*noop*/ } };
   const anularCxc = async (id)=>{ if(!confirm('¿Anular esta CxC?')) return; try{ const r = await fetch(`${FINANZAS_URL}/cxc/${id}/anular`, { method:'POST', headers: token? { Authorization:`Bearer ${token}` } : {} }); if(r.ok) await loadFinanzas(); } catch { /*noop*/ } };
@@ -600,7 +620,10 @@ function App() {
                     <div style={{ display:'flex', alignItems:'center', gap:6 }}>
                       <span>{i.facturaProveedor?.numero || '-'}</span>
                       {i.facturaProveedor?.fecha && <span className="muted" style={{ fontSize:12 }}>{String(i.facturaProveedor.fecha).slice(0,10)}</span>}
-                      <button className="btn btn--small" onClick={()=>{
+                      {(i.facturaProveedor?.numero || i.facturaProveedor?.adjuntoUrl) && (
+                        <span style={{ background:'#d4edda', color:'#155724', padding:'2px 6px', borderRadius:10, fontSize:11 }}>✓ Factura</span>
+                      )}
+                      <button className="btn btn--small" disabled={i.estado==='pagado'||i.estado==='anulado'} onClick={()=>{
                         const f = i.facturaProveedor || {};
                         setFacturaProvModal({
                           open:true,
@@ -609,7 +632,9 @@ function App() {
                           fecha: f.fecha ? String(f.fecha).slice(0,10) : '',
                           adjuntoUrl: f.adjuntoUrl || '',
                           observaciones: f.observaciones || '',
-                          tcUsado: f.tcUsado != null ? String(f.tcUsado) : ''
+                          tcUsado: f.tcUsado != null ? String(f.tcUsado) : '',
+                          archivo: null,
+                          uploading: false
                         });
                       }}>Factura</button>
                     </div>
@@ -637,8 +662,18 @@ function App() {
                 <input value={facturaProvModal.numero} onChange={e=> setFacturaProvModal({ ...facturaProvModal, numero: e.target.value })} />
                 <label>Fecha</label>
                 <input type="date" value={facturaProvModal.fecha} onChange={e=> setFacturaProvModal({ ...facturaProvModal, fecha: e.target.value })} />
-                <label>Adjunto (URL)</label>
-                <input value={facturaProvModal.adjuntoUrl} onChange={e=> setFacturaProvModal({ ...facturaProvModal, adjuntoUrl: e.target.value })} placeholder="https://..." />
+                <label>Adjunto</label>
+                {facturaProvModal.adjuntoUrl ? (
+                  <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6 }}>
+                    <a href={facturaProvModal.adjuntoUrl} target="_blank" rel="noreferrer">📎 Ver adjunto</a>
+                    <button type="button" className="btn btn--secondary" onClick={()=> setFacturaProvModal({ ...facturaProvModal, adjuntoUrl:'', archivo:null })}>Quitar</button>
+                  </div>
+                ) : (
+                  <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6 }}>
+                    <input type="file" onChange={e=> setFacturaProvModal({ ...facturaProvModal, archivo: e.target.files?.[0] || null })} />
+                    <button type="button" className="btn" disabled={!facturaProvModal.archivo || facturaProvModal.uploading} onClick={subirAdjuntoFacturaProv}>{facturaProvModal.uploading? 'Subiendo…':'Subir'}</button>
+                  </div>
+                )}
                 <label>Observaciones</label>
                 <textarea rows="2" value={facturaProvModal.observaciones} onChange={e=> setFacturaProvModal({ ...facturaProvModal, observaciones: e.target.value })} />
                 <label>TC usado (opcional)</label>

@@ -57,6 +57,10 @@ app.get('/api/health', (req, res) => {
     res.json({ ok: true, db: dbState });
 });
 
+// Servir uploads estáticos (adjuntos, facturas, etc.)
+const uploadsDir = path.resolve(__dirname, '../uploads');
+app.use('/uploads', express.static(uploadsDir));
+
 // Servir frontend (build de Vite) desde dist
 const distDir = path.resolve(__dirname, '../../Frontend/dist');
 app.use(express.static(distDir));

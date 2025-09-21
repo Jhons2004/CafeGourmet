@@ -57,6 +57,14 @@ async function getTipoCambioCached(force = false) {
   return val;
 }
 
+async function getTipoCambioCached(force = false) {
+  const now = Date.now();
+  if (!force && cache.value && cache.exp > now) return cache.value;
+  const val = await fetchTipoCambio();
+  cache = { value: val, exp: now + TTL_MS };
+  return val;
+}
+
 module.exports = {
   obtener: async (req, res) => {
     try {
@@ -67,6 +75,7 @@ module.exports = {
       res.status(500).json({ error: e.message });
     }
   },
+  getCached: getTipoCambioCached,
   // Para usar en arranque del servidor (precalentamiento)
   precalentar: async () => {
     try { await getTipoCambioCached(true); }
