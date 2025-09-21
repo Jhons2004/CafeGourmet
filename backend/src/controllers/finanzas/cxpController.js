@@ -1,0 +1,46 @@
+const CxP = require('../../models/CuentaPorPagar');
+
+module.exports = {
+	listar: async (req, res) => {
+		try {
+			const docs = await CxP.find().populate('proveedor', 'nombre ruc').populate('ordenCompra', 'numero total').lean();
+			res.json(docs);
+		} catch (e) { res.status(500).json({ error: e.message }); }
+	},
+	crear: async (req, res) => {
+		try {
+			const { proveedorId, ordenCompraId, fechaVencimiento, moneda = 'GTQ', monto } = req.body;
+			const doc = await CxP.create({ proveedor: proveedorId, ordenCompra: ordenCompraId || undefined, fechaVencimiento, moneda, monto, saldo: monto, estado: 'pendiente' });
+			res.status(201).json(doc);
+		} catch (e) { res.status(400).json({ error: e.message }); }
+	},
+	pagar: async (req, res) => {
+		try {
+			const { id } = req.params; const { monto } = req.body;
+			const doc = await CxP.findById(id); if (!doc) return res.status(404).json({ error: 'No encontrado' });
+			if (doc.estado === 'pagado' || doc.estado === 'anulado') return res.status(400).json({ error: 'No se puede pagar' });
+			doc.pagos.push({ monto });
+			doc.saldo = Number((doc.saldo - Number(monto)).toFixed(2));
+			if (doc.saldo <= 0) { doc.estado = 'pagado'; doc.saldo = 0; } else { doc.estado = 'parcial'; }
+			await doc.save();
+			res.json(doc);
+		} catch (e) { res.status(400).json({ error: e.message }); }
+	},
+	anular: async (req, res) => {
+		try {
+			const { id } = req.params; const doc = await CxP.findById(id); if (!doc) return res.status(404).json({ error: 'No encontrado' });
+			doc.estado = 'anulado'; await doc.save(); res.json(doc);
+		} catch (e) { res.status(400).json({ error: e.message }); }
+	},
+	actualizarFactura: async (req, res) => {
+		try {
+			const { id } = req.params;
+			const { numero, fecha, adjuntoUrl, observaciones, tcUsado } = req.body;
+			const doc = await CxP.findById(id); if (!doc) return res.status(404).json({ error: 'No encontrado' });
+			doc.facturaProveedor = { numero, fecha, adjuntoUrl, observaciones, tcUsado };
+			await doc.save();
+			res.json(doc);
+		} catch (e) { res.status(400).json({ error: e.message }); }
+	}
+};
+

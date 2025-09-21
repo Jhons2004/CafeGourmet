@@ -13,6 +13,11 @@ const produccionRoutes = require('./routes/produccion');
 const usuarioRoutes = require('./routes/usuario');
 const comprasRoutes = require('./routes/compras');
 const trazabilidadRoutes = require('./routes/trazabilidad');
+const ventasRoutes = require('./routes/ventas');
+const calidadRoutes = require('./routes/calidad');
+const reportesRoutes = require('./routes/reportes');
+const finanzasRoutes = require('./routes/finanzas');
+const tcController = require('./controllers/finanzas/tcController');
 
 // Conexión a MongoDB configurable por entorno
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/cafe_gourmet';
@@ -41,6 +46,10 @@ app.use('/api/produccion', produccionRoutes);
 app.use('/api/usuario', usuarioRoutes);
 app.use('/api/compras', comprasRoutes);
 app.use('/api/trazabilidad', trazabilidadRoutes);
+app.use('/api/ventas', ventasRoutes);
+app.use('/api/calidad', calidadRoutes);
+app.use('/api/reportes', reportesRoutes);
+app.use('/api/finanzas', finanzasRoutes);
 
 // Endpoint de salud para ver estado del backend/db
 app.get('/api/health', (req, res) => {
@@ -63,6 +72,9 @@ const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || '127.0.0.1';
 const server = app.listen(PORT, HOST, () => {
     console.log(`Servidor corriendo en ${HOST}:${PORT}`);
+    // Precalentar y programar actualización de tipo de cambio
+    tcController.precalentar();
+    tcController.schedule();
 });
 
 // Logs adicionales para diagnosticar caídas

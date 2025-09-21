@@ -1,6 +1,7 @@
 const OrdenCompra = require('../models/OrdenCompra');
 const Proveedor = require('../models/Proveedor');
 const Auditoria = require('../models/Auditoria');
+const CuentaPorPagar = require('../models/CuentaPorPagar');
 
 module.exports = {
   crear: async (req, res) => {
@@ -28,6 +29,18 @@ module.exports = {
       oc.estado = 'aprobada';
       oc.fechaAprobacion = new Date();
       await oc.save();
+      // Auto crear Cuenta por Pagar si no existe
+      try {
+        const existe = await CuentaPorPagar.findOne({ ordenCompra: oc._id, estado: { $ne: 'anulado' } });
+        if (!existe) {
+          const total = (oc.items || []).reduce((sum, it) => sum + (Number(it.cantidad) * Number(it.precioUnitario || 0)), 0);
+          const venc = new Date(); venc.setDate(venc.getDate() + 30);
+          await CuentaPorPagar.create({ proveedor: oc.proveedor, ordenCompra: oc._id, fechaVencimiento: venc, moneda: 'PEN', monto: total, saldo: total });
+        }
+      } catch (e) {
+        // log soft-fail en auditoría, no bloquea aprobación
+        await Auditoria.create({ usuario: req.user?.email || 'system', accion: 'auto_cxp', recurso: 'orden_compra', payload: { id: oc._id }, resultado: 'error', mensaje: e.message });
+      }
       await Auditoria.create({ usuario: req.user?.email || 'system', accion: 'aprobar', recurso: 'orden_compra', payload: { id }, resultado: 'ok' });
       res.json(oc);
     } catch (e) {

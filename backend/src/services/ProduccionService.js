@@ -70,23 +70,18 @@ class ProduccionService {
   }
 
   async _consumoTransaccional(consumos, afterConsumeCallback) {
-    const session = await mongoose.startSession();
-    session.startTransaction();
+    // Versión sin transacciones para desarrollo (MongoDB standalone)
     try {
-      await this._validarStock(consumos, session);
-      await this._consumirInventario(consumos, session);
+      await this._validarStock(consumos);
+      await this._consumirInventario(consumos);
       if (afterConsumeCallback) await afterConsumeCallback();
-      await session.commitTransaction();
       return true;
     } catch (e) {
-      await session.abortTransaction();
       throw e;
-    } finally {
-      session.endSession();
     }
   }
 
-  async _consumirInventario(consumos, session) {
+  async _consumirInventario(consumos, session = null) {
     // Consolidar por tipo
     const requeridos = consumos.reduce((acc, it) => {
       acc[it.tipo] = (acc[it.tipo] || 0) + Number(it.cantidad || 0);
@@ -98,7 +93,7 @@ class ProduccionService {
     for (const tipo of tipos) {
       let restante = requeridos[tipo];
       if (restante <= 0) continue;
-  const docs = await Grano.find({ tipo }).sort({ fechaRegistro: 1 }).session(session || null);
+      const docs = await Grano.find({ tipo, estado: { $ne: 'bloqueado' } }).sort({ fechaRegistro: 1 });
       for (const d of docs) {
         if (restante <= 0) break;
         const disponible = Number(d.cantidad || 0);
@@ -106,7 +101,7 @@ class ProduccionService {
         const tomar = Math.min(disponible, restante);
         d.cantidad = disponible - tomar;
         restante -= tomar;
-        await d.save({ session });
+        await d.save();
       }
       // Si queda restante, significa que no había stock suficiente (debería estar validado arriba)
       if (restante > 0) {
@@ -116,16 +111,16 @@ class ProduccionService {
 
     // Verificar stock bajo por tipo total restante (<=10)
     const totales = await Grano.aggregate([
-      { $match: { tipo: { $in: tipos } } },
+      { $match: { tipo: { $in: tipos }, estado: { $ne: 'bloqueado' } } },
       { $group: { _id: '$tipo', total: { $sum: '$cantidad' } } }
-    ]).session(session || null);
+    ]);
     const bajos = totales
       .filter(t => (t.total || 0) <= 10)
       .map(t => ({ tipo: t._id, cantidad: t.total }));
     if (bajos.length) this.subject.notify('CONSUMO_REGISTRADO', { items: bajos, stockBajo: true });
   }
 
-  async _validarStock(consumos, session) {
+  async _validarStock(consumos, session = null) {
     // Consolidar requeridos por tipo
     const requeridos = consumos.reduce((acc, it) => {
       const cant = Number(it.cantidad || 0);
@@ -136,9 +131,9 @@ class ProduccionService {
     if (tipos.length === 0) return true;
 
     const totales = await Grano.aggregate([
-      { $match: { tipo: { $in: tipos } } },
+      { $match: { tipo: { $in: tipos }, estado: { $ne: 'bloqueado' } } },
       { $group: { _id: '$tipo', total: { $sum: '$cantidad' } } }
-    ]).session(session || null);
+    ]);
     const mapa = Object.fromEntries(totales.map(t => [t._id, Number(t.total || 0)]));
     const faltantes = [];
     for (const tipo of tipos) {
@@ -153,11 +148,22 @@ class ProduccionService {
     return true;
   }
 
-  async cerrarOP(id, merma = 0) {
+  async cerrarOP(id, merma = 0, productoTerminado) {
     const op = await OrdenProduccion.findById(id);
     if (!op) throw new Error('OP no encontrada');
     const cmd = new CerrarOPCommand(op, merma);
-    return cmd.execute();
+    const closed = await cmd.execute();
+    // Si se provee productoTerminado: { productoId, cantidad, ubicacion? }
+    if (productoTerminado && Number(productoTerminado.cantidad) > 0) {
+      const StockProductoService = require('./StockProductoService');
+      await StockProductoService.ingresar({
+        productoId: productoTerminado.productoId,
+        cantidad: Number(productoTerminado.cantidad),
+        ubicacion: productoTerminado.ubicacion || 'ALM-PRINCIPAL',
+        lotePT: `PT-${closed.codigo}`
+      });
+    }
+    return closed;
   }
 }
 

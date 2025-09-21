@@ -7,26 +7,29 @@ const Auditoria = require('../models/Auditoria');
 
 module.exports = {
   crear: async (req, res) => {
-    const session = await mongoose.startSession();
-    session.startTransaction();
     try {
       const { ordenCompra, lotes } = req.body;
-      const oc = await OrdenCompra.findById(ordenCompra).session(session);
-      if (!oc) throw new Error('OC inválida');
-      if (!['aprobada','recibida'].includes(oc.estado)) throw new Error('OC debe estar aprobada');
-      const prov = await Proveedor.findById(oc.proveedor).session(session);
-      if (!prov) throw new Error('Proveedor inválido');
+      
+      // Verificar que la OC existe y está en estado válido
+      const oc = await OrdenCompra.findById(ordenCompra);
+      if (!oc) throw new Error('Orden de compra no encontrada');
+      if (!['aprobada','recibida'].includes(oc.estado)) throw new Error('La orden de compra debe estar aprobada');
+      
+      // Verificar que el proveedor existe
+      const prov = await Proveedor.findById(oc.proveedor);
+      if (!prov) throw new Error('Proveedor no encontrado');
 
-      const rec = await RecepcionLote.create([{
+      // Crear la recepción de lote
+      const rec = await RecepcionLote.create({
         ordenCompra: oc._id,
         proveedor: prov._id,
         lotes,
         observaciones: req.body.observaciones || null
-      }], { session });
+      });
 
-      // Crear documentos de Grano por lote
+      // Crear documentos de Grano por cada lote recibido
       for (const l of lotes) {
-        await Grano.create([{
+        await Grano.create({
           tipo: l.tipo,
           cantidad: l.cantidad,
           lote: l.lote,
@@ -34,22 +37,35 @@ module.exports = {
           proveedor: prov.nombre,
           ubicacion: 'ALM-PRINCIPAL',
           estado: 'activo'
-        }], { session });
+        });
       }
 
+      // Actualizar estado de la orden de compra
       oc.estado = 'recibida';
       oc.fechaRecepcion = new Date();
-      await oc.save({ session });
+      await oc.save();
 
-      await session.commitTransaction();
-      await Auditoria.create({ usuario: req.user?.email || 'system', accion: 'crear', recurso: 'recepcion', payload: req.body, resultado: 'ok' });
-      res.json(rec[0]);
+      // Crear registro de auditoría
+      await Auditoria.create({ 
+        usuario: req.user?.email || 'system', 
+        accion: 'crear', 
+        recurso: 'recepcion', 
+        payload: req.body, 
+        resultado: 'ok' 
+      });
+      
+      res.json(rec);
     } catch (e) {
-      await session.abortTransaction();
-      await Auditoria.create({ usuario: req.user?.email || 'system', accion: 'crear', recurso: 'recepcion', payload: req.body, resultado: 'error', mensaje: e.message });
+      // Crear registro de auditoría para errores
+      await Auditoria.create({ 
+        usuario: req.user?.email || 'system', 
+        accion: 'crear', 
+        recurso: 'recepcion', 
+        payload: req.body, 
+        resultado: 'error', 
+        mensaje: e.message 
+      });
       res.status(400).json({ error: e.message });
-    } finally {
-      session.endSession();
     }
   },
   listar: async (_req, res) => {

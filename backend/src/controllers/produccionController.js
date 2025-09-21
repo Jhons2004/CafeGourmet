@@ -29,8 +29,8 @@ module.exports = {
   },
   cerrar: async (req, res) => {
     try {
-      const { id } = req.params; const { merma = 0 } = req.body;
-      res.json(await produccion.cerrarOP(id, merma));
+      const { id } = req.params; const { merma = 0, productoTerminado } = req.body;
+      res.json(await produccion.cerrarOP(id, merma, productoTerminado));
     } catch (e) { res.status(400).json({ error: e.message }); }
   }
 };
