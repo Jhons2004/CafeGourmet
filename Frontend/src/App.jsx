@@ -328,6 +328,24 @@ function App() {
   const anularCxp = async (id)=>{ if(!confirm('¿Anular esta CxP?')) return; try{ const r = await fetch(`${FINANZAS_URL}/cxp/${id}/anular`, { method:'POST', headers: token? { Authorization:`Bearer ${token}` } : {} }); if(r.ok) await loadFinanzas(); } catch { /*noop*/ } };
   const guardarFacturaProv = async ()=>{
     try{
+      // Pre-chequeo anti-duplicados: mismo proveedor + mismo número
+      const numeroTrim = (facturaProvModal.numero || '').trim();
+      if (numeroTrim) {
+        // asegurar datos frescos mínimos
+        if (!cxp || cxp.length === 0) { await loadFinanzas(); }
+        const actual = cxp.find(x => x._id === facturaProvModal.cxpId);
+        const provId = actual && (actual.proveedor && (actual.proveedor._id || actual.proveedor));
+        if (provId) {
+          const dup = cxp.find(x => x._id !== facturaProvModal.cxpId
+            && (x.proveedor && ((x.proveedor._id || x.proveedor) === provId))
+            && x.facturaProveedor && (String(x.facturaProveedor.numero || '').trim().toLowerCase() === numeroTrim.toLowerCase())
+          );
+          if (dup) {
+            setFacturaProvModal(prev => ({ ...prev, errorMsg: 'Ya existe otra CxP del mismo proveedor con ese número de factura.' }));
+            return;
+          }
+        }
+      }
       const payload = {
         numero: facturaProvModal.numero || undefined,
         fecha: facturaProvModal.fecha || undefined,
@@ -704,7 +722,24 @@ function App() {
                 <label>Adjunto</label>
                 {facturaProvModal.adjuntoUrl ? (
                   <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6 }}>
-                    <a href={facturaProvModal.adjuntoUrl} target="_blank" rel="noreferrer">📎 Ver adjunto</a>
+                    <button type="button" className="btn btn--secondary" onClick={async()=>{
+                      try {
+                        const r = await fetch(`${FINANZAS_URL}/cxp/${facturaProvModal.cxpId}/factura/adjunto`, { headers: token? { Authorization:`Bearer ${token}` } : {} });
+                        if (!r.ok) { alert('No se pudo descargar el adjunto'); return; }
+                        const blob = await r.blob();
+                        const url = window.URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        const ext = (facturaProvModal.adjuntoUrl.split('.').pop()||'file');
+                        a.download = `factura_proveedor_${facturaProvModal.cxpId}.${ext}`;
+                        document.body.appendChild(a);
+                        a.click();
+                        a.remove();
+                        window.URL.revokeObjectURL(url);
+                      } catch {
+                        alert('Error al descargar adjunto');
+                      }
+                    }}>📎 Descargar adjunto</button>
                     <button type="button" className="btn btn--secondary" onClick={()=> setFacturaProvModal({ ...facturaProvModal, adjuntoUrl:'', archivo:null })}>Quitar</button>
                   </div>
                 ) : (
@@ -1408,6 +1443,7 @@ function App() {
             <option value="it">Soporte IT</option>
             <option value="rrhh">RRHH</option>
             <option value="admin">Administrador</option>
+            <option value="auditor">Auditor</option>
           </select>
           <div style={{ height:8 }} />
           <button className="btn btn--primary" type="submit">Crear</button>
@@ -1429,6 +1465,7 @@ function App() {
                     <option value="it">Soporte IT</option>
                     <option value="rrhh">RRHH</option>
                     <option value="admin">Administrador</option>
+                    <option value="auditor">Auditor</option>
                   </select>
                 </td>
                 <td>
