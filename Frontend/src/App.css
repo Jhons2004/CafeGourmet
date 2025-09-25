@@ -198,3 +198,41 @@ th {
 .modal__header { display:flex; justify-content: space-between; align-items:center; margin-bottom: .5rem; }
 .modal__title { font-weight: 700; font-size: 1.1rem; }
 .modal__footer { display:flex; justify-content: flex-end; gap:.5rem; margin-top: .75rem; }
+
+/* Alertas de Stock Bajo */
+@keyframes stockAlertSlide {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes stockAlertPulse {
+  0%, 100% {
+    box-shadow: 0 4px 12px rgba(255, 68, 68, 0.3);
+  }
+  50% {
+    box-shadow: 0 4px 20px rgba(255, 68, 68, 0.5);
+  }
+}
+
+.stock-alert {
+  animation: stockAlertSlide 0.5s ease-out, stockAlertPulse 2s infinite;
+}
+
+.stock-alert:hover {
+  transform: translateX(-4px);
+  box-shadow: 0 6px 16px rgba(0,0,0,0.4) !important;
+}
+
+.stock-alert-button {
+  transition: all 0.2s ease;
+}
+
+.stock-alert-button:hover {
+  background-color: rgba(255,255,255,0.2) !important;
+}

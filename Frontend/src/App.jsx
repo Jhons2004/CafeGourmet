@@ -18,6 +18,7 @@ function App() {
   const [editId, setEditId] = useState(null);
   const [editCantidad, setEditCantidad] = useState('');
   const [mensaje, setMensaje] = useState('');
+  const [stockBajoAlerts, setStockBajoAlerts] = useState([]);
   const [login, setLogin] = useState({ email: '', password: '' });
   const [user, setUser] = useState(null);
   const [token, setToken] = useState('');
@@ -40,6 +41,25 @@ function App() {
     const res = await fetch(API_URL);
     const data = await res.json();
     setGranos(data);
+    verificarStockBajo(data);
+  };
+
+  const verificarStockBajo = (granosData) => {
+    const alertas = granosData
+      .filter(grano => grano.cantidad <= 5)
+      .map(grano => ({
+        id: grano._id,
+        tipo: grano.tipo,
+        cantidad: grano.cantidad,
+        proveedor: grano.proveedor
+      }));
+    
+    setStockBajoAlerts(alertas);
+    
+    // Auto-ocultar alertas después de 10 segundos
+    if (alertas.length > 0) {
+      setTimeout(() => setStockBajoAlerts([]), 10000);
+    }
   };
 
   useEffect(() => {
@@ -506,6 +526,7 @@ function App() {
         </div>
   <button style={{ marginBottom: 16, width: '100%' }} className="btn btn--primary" onClick={() => setPanel('inventario')}>Ir a Inventario de Granos</button>
   <button style={{ marginBottom: 16, width: '100%' }} className="btn" onClick={() => { setPanel('produccion'); loadOPs(); }}>Ir a Producción</button>
+  <button style={{ marginBottom: 16, width: '100%' }} className="btn" onClick={() => { setPanel('proveedores'); loadProveedores(); }}>Ir a Proveedores</button>
   <button style={{ marginBottom: 16, width: '100%' }} className="btn" onClick={() => { setPanel('compras'); loadProveedores(); loadOrdenes(); loadRecepciones(); }}>Ir a Compras</button>
   <button style={{ marginBottom: 16, width: '100%' }} className="btn" onClick={() => { setPanel('ventas'); loadClientes(); loadProductosPT(); loadPedidos(); loadFacturas(); }}>Ir a Ventas</button>
   <button style={{ marginBottom: 16, width: '100%' }} className="btn" onClick={() => { setPanel('calidad'); loadRecepciones(); loadQCRecepciones(); loadQCProceso(); loadNCs(); loadOPs(); }}>Ir a Calidad</button>
@@ -1210,7 +1231,7 @@ function App() {
           </thead>
           <tbody>
             {granos.map(g => (
-              <tr key={g._id}>
+              <tr key={g._id} style={{ backgroundColor: g.cantidad <= 5 ? '#fff5f5' : '' }}>
                 <td>{g.tipo}</td>
                 <td>
                   {editId === g._id ? (
@@ -1221,7 +1242,13 @@ function App() {
                     </>
                   ) : (
                     <>
-                      {g.cantidad}
+                      <span style={{ 
+                        color: g.cantidad <= 5 ? '#ff4444' : 'inherit',
+                        fontWeight: g.cantidad <= 5 ? 'bold' : 'normal'
+                      }}>
+                        {g.cantidad}
+                        {g.cantidad <= 5 && <span style={{ marginLeft: 4 }}>⚠️</span>}
+                      </span>
                       <button className="btn btn--sm btn--secondary" onClick={() => handleEdit(g._id, g.cantidad)} style={{ marginLeft: 8 }}>Editar</button>
                     </>
                   )}
@@ -1233,6 +1260,70 @@ function App() {
             ))}
           </tbody>
         </table>
+
+        {/* Alertas flotantes de stock bajo */}
+        {stockBajoAlerts.length > 0 && (
+          <div style={{
+            position: 'fixed',
+            bottom: '20px',
+            right: '20px',
+            zIndex: 1000,
+            maxWidth: '350px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '8px'
+          }}>
+            {stockBajoAlerts.map((alert, index) => (
+              <div 
+                key={alert.id}
+                className="stock-alert"
+                style={{
+                  backgroundColor: '#ff4444',
+                  color: 'white',
+                  padding: '12px 16px',
+                  borderRadius: '8px',
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+                  border: '1px solid #cc0000',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  cursor: 'default',
+                  userSelect: 'none'
+                }}
+              >
+                <span style={{ fontSize: '18px' }}>⚠️</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 'bold', fontSize: '14px', marginBottom: '2px' }}>
+                    Stock Bajo
+                  </div>
+                  <div style={{ fontSize: '12px', opacity: 0.9, marginBottom: '1px' }}>
+                    {alert.tipo.charAt(0).toUpperCase() + alert.tipo.slice(1)}: {alert.cantidad}kg restantes
+                  </div>
+                  <div style={{ fontSize: '11px', opacity: 0.8, fontStyle: 'italic' }}>
+                    Realizar pedido urgente
+                  </div>
+                </div>
+                <button
+                  onClick={() => setStockBajoAlerts(prev => prev.filter(a => a.id !== alert.id))}
+                  className="stock-alert-button"
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'white',
+                    fontSize: '14px',
+                    cursor: 'pointer',
+                    padding: '4px 8px',
+                    borderRadius: '4px',
+                    opacity: 0.8
+                  }}
+                  title="Cerrar alerta"
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     );
   }
@@ -1476,6 +1567,201 @@ function App() {
             ))}
           </tbody>
         </table>
+      </div>
+    );
+  }
+
+  if (panel === 'proveedores') {
+    return (
+      <div className="form-container">
+        <div className="toolbar" style={{ marginBottom: 8 }}>
+          <h2 style={{ margin: 0 }}>🏪 Gestión de Proveedores</h2>
+          <button className="btn btn--secondary" onClick={() => setPanel('inicio')}>Volver</button>
+        </div>
+        <div className="panel muted" style={{ marginBottom: 12 }}>
+          Usuario activo: <b>{user.nombre}</b> ({user.rol})
+        </div>
+
+        {/* Formulario para crear nuevo proveedor */}
+        <div className="panel" style={{ marginBottom: 16 }}>
+          <div className="panel__title">➕ Registrar Nuevo Proveedor</div>
+          <form onSubmit={async(e) => {
+            e.preventDefault();
+            try {
+              const res = await fetch(`${COMPRAS_URL}/proveedores`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                body: JSON.stringify(newProveedor)
+              });
+              if (res.ok) {
+                setNewProveedor({ nombre: '', ruc: '', contacto: '', telefono: '', direccion: '', email: '' });
+                loadProveedores();
+                setComprasMsg('Proveedor creado exitosamente');
+              } else {
+                const data = await res.json();
+                setComprasMsg(data.error || 'Error al crear proveedor');
+              }
+            } catch {
+              setComprasMsg('Error de conexión');
+            }
+          }} style={{ marginBottom: 16 }}>
+            
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 12 }}>
+              <div>
+                <label style={{ fontSize: '13px', fontWeight: 'bold', color: '#6c757d' }}>🏪 Nombre de la Empresa *</label>
+                <input 
+                  type="text" 
+                  placeholder="Ej: Café Premium SA" 
+                  value={newProveedor.nombre} 
+                  onChange={e => setNewProveedor({...newProveedor, nombre: e.target.value})} 
+                  required 
+                  style={{ width: '100%' }}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: '13px', fontWeight: 'bold', color: '#6c757d' }}>📋 RUC/NIT</label>
+                <input 
+                  type="text" 
+                  placeholder="Ej: 20123456789" 
+                  value={newProveedor.ruc} 
+                  onChange={e => setNewProveedor({...newProveedor, ruc: e.target.value})} 
+                  style={{ width: '100%' }}
+                />
+              </div>
+            </div>
+            
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 12 }}>
+              <div>
+                <label style={{ fontSize: '13px', fontWeight: 'bold', color: '#6c757d' }}>👤 Persona de Contacto</label>
+                <input 
+                  type="text" 
+                  placeholder="Ej: Juan Pérez" 
+                  value={newProveedor.contacto} 
+                  onChange={e => setNewProveedor({...newProveedor, contacto: e.target.value})} 
+                  style={{ width: '100%' }}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: '13px', fontWeight: 'bold', color: '#6c757d' }}>📞 Teléfono</label>
+                <input 
+                  type="tel" 
+                  placeholder="Ej: +502 1234-5678" 
+                  value={newProveedor.telefono} 
+                  onChange={e => setNewProveedor({...newProveedor, telefono: e.target.value})} 
+                  style={{ width: '100%' }}
+                />
+              </div>
+            </div>
+            
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
+              <div>
+                <label style={{ fontSize: '13px', fontWeight: 'bold', color: '#6c757d' }}>📧 Email</label>
+                <input 
+                  type="email" 
+                  placeholder="Ej: ventas@proveedor.com" 
+                  value={newProveedor.email} 
+                  onChange={e => setNewProveedor({...newProveedor, email: e.target.value})} 
+                  style={{ width: '100%' }}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: '13px', fontWeight: 'bold', color: '#6c757d' }}>📍 Dirección</label>
+                <input 
+                  type="text" 
+                  placeholder="Ej: Zona 10, Guatemala" 
+                  value={newProveedor.direccion} 
+                  onChange={e => setNewProveedor({...newProveedor, direccion: e.target.value})} 
+                  style={{ width: '100%' }}
+                />
+              </div>
+            </div>
+            
+            <button 
+              type="submit" 
+              className="btn btn--primary" 
+              style={{ width: '100%', padding: '10px' }}
+              disabled={!newProveedor.nombre.trim()}
+            >
+              🏪 Registrar Proveedor
+            </button>
+          </form>
+          
+          {comprasMsg && (
+            <div className="panel" style={{ 
+              color: comprasMsg.includes('Error') ? '#b23' : '#4a5',
+              marginTop: 12,
+              padding: '8px 12px',
+              borderRadius: '4px',
+              backgroundColor: comprasMsg.includes('Error') ? '#fff5f5' : '#f0fff4'
+            }}>
+              {comprasMsg}
+            </div>
+          )}
+        </div>
+
+        {/* Lista de proveedores */}
+        <div className="panel">
+          <div className="panel__title">📋 Proveedores Registrados ({proveedores.length})</div>
+          
+          {proveedores.length === 0 ? (
+            <div style={{ 
+              textAlign: 'center', 
+              padding: '40px 20px', 
+              color: '#6c757d',
+              fontStyle: 'italic'
+            }}>
+              📋 No hay proveedores registrados aún.
+              <br />
+              Registra tu primer proveedor usando el formulario de arriba.
+            </div>
+          ) : (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 8 }}>
+                <thead>
+                  <tr style={{ backgroundColor: '#f8f9fa', borderBottom: '2px solid #dee2e6' }}>
+                    <th style={{ padding: '12px 8px', textAlign: 'left', fontWeight: 'bold', color: '#495057' }}>🏪 Empresa</th>
+                    <th style={{ padding: '12px 8px', textAlign: 'left', fontWeight: 'bold', color: '#495057' }}>📋 RUC/NIT</th>
+                    <th style={{ padding: '12px 8px', textAlign: 'left', fontWeight: 'bold', color: '#495057' }}>👤 Contacto</th>
+                    <th style={{ padding: '12px 8px', textAlign: 'left', fontWeight: 'bold', color: '#495057' }}>📞 Teléfono</th>
+                    <th style={{ padding: '12px 8px', textAlign: 'left', fontWeight: 'bold', color: '#495057' }}>📧 Email</th>
+                    <th style={{ padding: '12px 8px', textAlign: 'left', fontWeight: 'bold', color: '#495057' }}>📍 Dirección</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {proveedores.map((p, idx) => (
+                    <tr key={p._id || idx} style={{ 
+                      borderBottom: '1px solid #dee2e6',
+                      backgroundColor: idx % 2 === 0 ? '#fff' : '#f8f9fa'
+                    }}>
+                      <td style={{ padding: '12px 8px', fontWeight: 'bold', color: '#495057' }}>
+                        🏪 {p.nombre || 'Sin nombre'}
+                      </td>
+                      <td style={{ padding: '12px 8px', color: '#6c757d' }}>
+                        {p.ruc || '---'}
+                      </td>
+                      <td style={{ padding: '12px 8px', color: '#495057' }}>
+                        {p.contacto || '---'}
+                      </td>
+                      <td style={{ padding: '12px 8px', color: '#495057' }}>
+                        {p.telefono || '---'}
+                      </td>
+                      <td style={{ padding: '12px 8px', color: '#495057' }}>
+                        {p.email ? (
+                          <a href={`mailto:${p.email}`} style={{ color: '#007bff', textDecoration: 'none' }}>
+                            {p.email}
+                          </a>
+                        ) : '---'}
+                      </td>
+                      <td style={{ padding: '12px 8px', color: '#6c757d' }}>
+                        {p.direccion || '---'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       </div>
     );
   }
