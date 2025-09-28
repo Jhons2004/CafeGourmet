@@ -45,7 +45,15 @@ module.exports = {
   cancelar: async (req, res) => {
     try { const { id } = req.params; const p = await PedidoVenta.findById(id); if (!p) throw new Error('Pedido no encontrado');
       if (p.estado === 'despachado') throw new Error('No se puede cancelar un pedido despachado');
-      p.estado = 'cancelado'; await p.save(); res.json(p);
+      const previo = p.estado;
+      p.estado = 'cancelado'; await p.save();
+      if (previo === 'confirmado') {
+        try {
+          const ReservaStock = require('../../models/ReservaStock');
+            await ReservaStock.updateMany({ referencia: p.codigo, estado: 'ACTIVA' }, { $set: { estado: 'LIBERADA' } });
+        } catch(e){ /* log */ }
+      }
+      res.json(p);
     } catch (e) { res.status(400).json({ error: e.message }); }
   }
 };

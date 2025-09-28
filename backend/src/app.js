@@ -18,6 +18,7 @@ const calidadRoutes = require('./routes/calidad');
 const reportesRoutes = require('./routes/reportes');
 const finanzasRoutes = require('./routes/finanzas');
 const tcController = require('./controllers/finanzas/tcController');
+const { schedule: scheduleLotesJob } = require('./jobs/lotesJob');
 
 // Conexión a MongoDB configurable por entorno
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/cafe_gourmet';
@@ -81,6 +82,7 @@ const server = app.listen(PORT, HOST, () => {
     // Precalentar y programar actualización de tipo de cambio
     tcController.precalentar();
     tcController.schedule();
+    scheduleLotesJob();
 });
 
 // Logs adicionales para diagnosticar caídas

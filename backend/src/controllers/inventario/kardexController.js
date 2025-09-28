@@ -3,7 +3,7 @@ const Stock = require('../../models/Stock');
 
 module.exports = {
   kardex: async (req,res) => {
-    const { productoRef, tipoProducto, desde, hasta, bodega, loteRef, ubicacion } = req.query;
+    const { productoRef, tipoProducto, desde, hasta, bodega, loteRef, ubicacion, limit, skip, export: exportFmt } = req.query;
     if (!productoRef || !tipoProducto) return res.status(400).json({ error: 'productoRef y tipoProducto requeridos' });
     const filter = { productoRef, tipoProducto };
     if (bodega) filter.$or = [{ bodegaOrigen: bodega }, { bodegaDestino: bodega }];
@@ -32,7 +32,21 @@ module.exports = {
       }
       detalle.push({ id: m._id, fecha: m.fecha, tipo: m.tipo, cantidad: m.cantidad * signo, costoUnitario: m.costoUnitario, saldo, costoPromedio });
     }
-    res.json({ productoRef, tipoProducto, saldoFinal: saldo, costoPromedioFinal: costoPromedio, movimientos: detalle });
+  const totalMovs = detalle.length;
+  let detallePagina = detalle;
+  const lim = parseInt(limit,10); const sk = parseInt(skip,10);
+    if (!isNaN(lim) && lim > 0) {
+      detallePagina = detalle.slice(isNaN(sk)?0:sk, (isNaN(sk)?0:sk)+lim);
+    }
+    if (exportFmt === 'csv') {
+      const header = 'fecha,tipo,cantidad,costoUnitario,saldo,costoPromedio,loteRef';
+      const rows = detalle.map(d => [d.fecha.toISOString(), d.tipo, d.cantidad, d.costoUnitario??'', d.saldo, d.costoPromedio, d.loteRef||''].join(','));
+      const csv = [header, ...rows].join('\n');
+      res.setHeader('Content-Type','text/csv');
+      res.setHeader('Content-Disposition', 'attachment; filename="kardex.csv"');
+      return res.send(csv);
+    }
+    res.json({ productoRef, tipoProducto, saldoFinal: saldo, costoPromedioFinal: costoPromedio, totalMovs, movimientos: detallePagina });
   },
   valorizacion: async (_req,res) => {
     const stocks = await Stock.find({});
