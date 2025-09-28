@@ -34,3 +34,11 @@ exports.resetPasswordSimple = Joi.object({
 exports.paramsId = Joi.object({
   id: Joi.string().regex(/^[0-9a-fA-F]{24}$/).required()
 });
+
+exports.actualizarPreferencias = Joi.object({
+  themeMode: Joi.string().valid('light','dark').optional(),
+  themePalette: Joi.string().max(40).optional(),
+  borderStyle: Joi.string().valid('rounded','flat').optional(),
+  numberFormat: Joi.string().valid('fin','natural').optional(),
+  customColors: Joi.object().pattern(/.*/, Joi.string().max(14)).optional()
+});

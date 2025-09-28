@@ -8,7 +8,17 @@ const UsuarioSchema = new mongoose.Schema({
     rol: { type: String, enum: ['admin', 'it', 'rrhh', 'operador', 'auditor'], default: 'operador' },
     // Campos para recuperación de contraseña
     resetToken: { type: String, default: null },
-    resetExpires: { type: Date, default: null }
+    resetExpires: { type: Date, default: null },
+    // Preferencias UI
+    uiPreferences: {
+        themeMode: { type: String, enum: ['light','dark'], default: 'light' },
+        themePalette: { type: String, default: 'espresso' },
+        borderStyle: { type: String, enum: ['rounded','flat'], default: 'rounded' },
+        numberFormat: { type: String, enum: ['fin','natural'], default: 'fin' },
+        customColors: { type: Object, default: {} },
+        logoUrl: { type: String, default: '' },
+        updatedAt: { type: Date, default: Date.now }
+    }
 });
 
 UsuarioSchema.pre('save', async function(next) {

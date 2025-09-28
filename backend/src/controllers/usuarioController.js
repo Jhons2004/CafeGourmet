@@ -2,6 +2,8 @@ const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const Usuario = require('../models/Usuario');
 const { JWT_SECRET } = require('../middleware/auth');
+const path = require('path');
+const fs = require('fs');
 
 module.exports = {
     listar: async (_req, res) => {
@@ -110,6 +112,61 @@ module.exports = {
             res.json({ mensaje: 'Contraseña actualizada' });
         } catch (err) {
             res.status(400).json({ error: 'Error al actualizar contraseña', detalles: err.message });
+        }
+    },
+    obtenerPreferencias: async (req, res) => {
+        try {
+            const usuario = await Usuario.findById(req.user.id, { password:0, resetToken:0, resetExpires:0 });
+            if (!usuario) return res.status(404).json({ error: 'Usuario no encontrado' });
+            res.json({ preferencias: usuario.uiPreferences });
+        } catch (err) {
+            res.status(400).json({ error: 'Error al obtener preferencias', detalles: err.message });
+        }
+    },
+    actualizarPreferencias: async (req, res) => {
+        try {
+            const { themeMode, themePalette, borderStyle, numberFormat, customColors } = req.body;
+            const usuario = await Usuario.findById(req.user.id);
+            if (!usuario) return res.status(404).json({ error: 'Usuario no encontrado' });
+            if (themeMode) usuario.uiPreferences.themeMode = themeMode;
+            if (themePalette) usuario.uiPreferences.themePalette = themePalette;
+            if (borderStyle) usuario.uiPreferences.borderStyle = borderStyle;
+            if (numberFormat) usuario.uiPreferences.numberFormat = numberFormat;
+            if (customColors) usuario.uiPreferences.customColors = customColors;
+            usuario.uiPreferences.updatedAt = new Date();
+            await usuario.save();
+            res.json({ mensaje: 'Preferencias actualizadas', preferencias: usuario.uiPreferences });
+        } catch (err) {
+            res.status(400).json({ error: 'Error al actualizar preferencias', detalles: err.message });
+        }
+    },
+    subirLogo: async (req, res) => {
+        try {
+            if (!req.file) return res.status(400).json({ error: 'Archivo no recibido' });
+            const usuario = await Usuario.findById(req.user.id);
+            if (!usuario) return res.status(404).json({ error: 'Usuario no encontrado' });
+            usuario.uiPreferences.logoUrl = `/uploads/logos/${req.file.filename}`;
+            usuario.uiPreferences.updatedAt = new Date();
+            await usuario.save();
+            res.json({ mensaje: 'Logo actualizado', logoUrl: usuario.uiPreferences.logoUrl });
+        } catch (err) {
+            res.status(400).json({ error: 'Error al subir logo', detalles: err.message });
+        }
+    },
+    eliminarLogo: async (req, res) => {
+        try {
+            const usuario = await Usuario.findById(req.user.id);
+            if (!usuario) return res.status(404).json({ error: 'Usuario no encontrado' });
+            if (usuario.uiPreferences.logoUrl) {
+                const filePath = path.resolve(__dirname, '../../', usuario.uiPreferences.logoUrl.replace(/^\//,''));
+                fs.unlink(filePath, ()=>{}); // best effort
+            }
+            usuario.uiPreferences.logoUrl = '';
+            usuario.uiPreferences.updatedAt = new Date();
+            await usuario.save();
+            res.json({ mensaje: 'Logo eliminado' });
+        } catch (err) {
+            res.status(400).json({ error: 'Error al eliminar logo', detalles: err.message });
         }
     }
 };
