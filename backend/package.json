@@ -5,7 +5,9 @@
   "scripts": {
     "start": "node src/app.js",
     "start:dev": "set PORT=3000&& set HOST=127.0.0.1&& node src/app.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+  "test": "echo 'Usa npm run test:costeo'",
+  "test:costeo": "node tests/costeo.js",
+  "test:advanced": "node tests/advanced.js"
   },
   "keywords": [],
   "author": "",

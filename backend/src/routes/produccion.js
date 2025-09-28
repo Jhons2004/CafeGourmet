@@ -20,4 +20,7 @@ router.post('/:id/consumo', requireAuth, requireRole('admin','it','operador'), v
 // Cerrar OP
 router.post('/:id/cerrar', requireAuth, requireRole('admin','it','operador'), validate(v.paramsId, 'params'), validate(v.cerrarBody), ctrl.cerrar);
 
+// Consumir BOM manualmente (si no se auto-consumió)
+router.post('/:id/consumir-bom', requireAuth, requireRole('admin','it','operador'), validate(v.paramsId,'params'), ctrl.consumirBOM);
+
 module.exports = router;

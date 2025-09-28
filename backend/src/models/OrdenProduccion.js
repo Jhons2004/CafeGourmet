@@ -20,7 +20,10 @@ const ConsumoSchema = new mongoose.Schema({
 const OrdenProduccionSchema = new mongoose.Schema({
   codigo: { type: String, unique: true },
   producto: { type: String, required: true },
+  bomRef: { type: mongoose.Schema.Types.ObjectId, ref: 'BOM' },
   receta: { type: [IngredienteSchema], default: [] },
+  // Nuevo: insumos detallados cuando se usa BOM (productoRef/cantidad)
+  insumos: { type: [{ tipoProducto: { type: String, enum: ['grano','productoTerminado'], required: true }, productoRef: { type: mongoose.Schema.Types.ObjectId, required: true }, cantidad: { type: Number, required: true } }], default: [] },
   etapas: { type: [EtapaSchema], default: [
     { nombre: 'Tostado', estado: 'pendiente' },
     { nombre: 'Molido', estado: 'pendiente' },
@@ -30,7 +33,10 @@ const OrdenProduccionSchema = new mongoose.Schema({
   consumos: { type: [ConsumoSchema], default: [] },
   merma: { type: Number, default: 0 },
   fechaCreacion: { type: Date, default: Date.now },
-  fechaCierre: { type: Date }
+  fechaCierre: { type: Date },
+  costoInsumos: { type: Number, default: 0 },
+  costoUnitarioFinal: { type: Number, default: 0 },
+  bomConsumida: { type: Boolean, default: false }
 });
 
 OrdenProduccionSchema.pre('save', function(next) {

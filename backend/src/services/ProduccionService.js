@@ -2,6 +2,11 @@ const mongoose = require('mongoose');
 const OrdenProduccion = require('../models/OrdenProduccion');
 const Grano = require('../models/Grano');
 const { ProduccionSubject, CalidadObserver, ComprasObserver } = require('../observers/ProduccionObserver');
+const BOM = require('../models/BOM');
+const { registrarMovimiento } = require('./inventoryCostingService');
+const Bodega = require('../models/Bodega');
+const Ubicacion = require('../models/Ubicacion');
+const Lote = require('../models/Lote');
 const { AvanzarEtapaCommand, RegistrarConsumoCommand, CerrarOPCommand } = require('../commands/ProduccionCommands');
 
 class ProduccionService {
@@ -11,8 +16,17 @@ class ProduccionService {
     this.subject.subscribe(new ComprasObserver());
   }
 
-  async crearOP({ producto, receta }) {
-    const op = new OrdenProduccion({ producto, receta });
+  async crearOP({ producto, receta, bomRef }) {
+    let recetaFinal = receta;
+    let insumos = [];
+    if (bomRef) {
+      const bom = await BOM.findById(bomRef);
+      if (!bom) throw new Error('BOM no encontrada');
+      insumos = bom.componentes.map(c => ({ tipoProducto: c.tipoProducto, productoRef: c.productoRef, cantidad: c.cantidad }));
+      // Guardamos receta textual simplificada solo para visualización (ej: nombres genéricos), podría enriquecerse luego
+      recetaFinal = insumos.map(i => ({ tipo: 'arabica', cantidad: i.cantidad }));
+    }
+    const op = new OrdenProduccion({ producto, receta: recetaFinal, bomRef, insumos });
     await op.save();
     return op;
   }
@@ -47,6 +61,13 @@ class ProduccionService {
           await op.save();
         });
       }
+    }
+
+    // Si es la primera etapa y existe BOM no consumida => consumir BOM automáticamente
+    const primera = op.etapas[0]?.nombre === etapaNombre;
+    if (primera && op.bomRef && !op.bomConsumida) {
+      await this.consumirBOMEnOP(op._id);
+      op.bomConsumida = true; await op.save();
     }
 
     const cmd = new AvanzarEtapaCommand(op, etapaNombre);
@@ -155,15 +176,57 @@ class ProduccionService {
     const closed = await cmd.execute();
     // Si se provee productoTerminado: { productoId, cantidad, ubicacion? }
     if (productoTerminado && Number(productoTerminado.cantidad) > 0) {
-      const StockProductoService = require('./StockProductoService');
-      await StockProductoService.ingresar({
-        productoId: productoTerminado.productoId,
-        cantidad: Number(productoTerminado.cantidad),
-        ubicacion: productoTerminado.ubicacion || 'ALM-PRINCIPAL',
-        lotePT: `PT-${closed.codigo}`
-      });
+      // Calcular costo total insumos consumidos (simple: sumar cantidades * costo promedio actual de grano)
+      // Futuro: registrar movimientos SALIDA insumos en tiempo real y acumular costo.
+      const principal = await Bodega.findOne();
+      const ubi = await Ubicacion.findOne({ bodega: principal?._id });
+      if (principal && ubi) {
+        const mov = await registrarMovimiento({
+          tipo: 'ENTRADA',
+          productoRef: new mongoose.Types.ObjectId(productoTerminado.productoId),
+          tipoProducto: 'productoTerminado',
+          bodegaDestino: principal._id,
+            ubicacionDestino: ubi._id,
+          cantidad: Number(productoTerminado.cantidad),
+          costoUnitario: productoTerminado.costoUnitario || 0,
+          metodoCosteo: 'PROMEDIO',
+          notas: 'Ingreso producto terminado OP ' + closed.codigo
+        });
+        op.costoInsumos += (mov.costoUnitario * mov.cantidad);
+        // costo final unitario = costoInsumos acumulado / total producido (simplificación)
+        if (Number(productoTerminado.cantidad) > 0) {
+          op.costoUnitarioFinal = op.costoInsumos / Number(productoTerminado.cantidad);
+        }
+        await op.save();
+      }
     }
     return closed;
+  }
+
+  async consumirBOMEnOP(id) {
+    const op = await OrdenProduccion.findById(id).populate('bomRef');
+    if (!op) throw new Error('OP no encontrada');
+    if (!op.bomRef) throw new Error('OP sin BOM asociada');
+    const principal = await Bodega.findOne();
+    const ubi = await Ubicacion.findOne({ bodega: principal?._id });
+    if (!principal || !ubi) throw new Error('No existe bodega/ubicación base');
+    let costoTotal = 0;
+    for (const comp of op.bomRef.componentes) {
+      const mov = await registrarMovimiento({
+        tipo: 'SALIDA',
+        productoRef: comp.productoRef,
+        tipoProducto: comp.tipoProducto,
+        bodegaOrigen: principal._id,
+        ubicacionOrigen: ubi._id,
+        cantidad: comp.cantidad,
+        metodoCosteo: 'PROMEDIO',
+        notas: 'Consumo BOM OP ' + op.codigo
+      });
+      costoTotal += (mov.costoUnitario * mov.cantidad);
+    }
+    op.costoInsumos += costoTotal;
+    await op.save();
+    return { costoTotal, costoAcumulado: op.costoInsumos };
   }
 }
 
