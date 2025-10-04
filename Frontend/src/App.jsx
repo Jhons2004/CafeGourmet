@@ -1,7 +1,8 @@
 
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import './App.css';
+import { LIGHT_THEMES, DARK_THEMES, applyPalette } from './themes';
 
 const API_URL = '/api/inventario';
 const PROD_URL = '/api/produccion';
@@ -30,12 +31,72 @@ function App() {
   const [changeData, setChangeData] = useState({ email: '', nuevaPassword: '', confirm: '' });
   const [changeMsg, setChangeMsg] = useState('');
 
-  const [theme, setTheme] = useState('light');
+  const [theme, setTheme] = useState(() => localStorage.getItem('ui:mode') || 'light');
+  const [palette, setPalette] = useState(() => localStorage.getItem('ui:palette') || 'espresso');
+  const [showPalette, setShowPalette] = useState(false);
+  const [borderStyle, setBorderStyle] = useState(() => localStorage.getItem('ui:radius') || 'rounded');
+  const [numberFmt, setNumberFmt] = useState(() => localStorage.getItem('ui:numfmt') || 'fin');
+  const [logoData, setLogoData] = useState(() => localStorage.getItem('ui:logo') || '');
+  const paletteList = theme === 'light' ? LIGHT_THEMES : DARK_THEMES;
   useEffect(() => {
-    document.body.setAttribute('data-theme', theme);
-    document.body.style.background = '';
-    document.body.style.minHeight = '100vh';
-  }, [theme]);
+    const active = paletteList.find(p => p.name === palette) || paletteList[0];
+    applyPalette(theme, active);
+    document.body.dataset.radius = borderStyle;
+    localStorage.setItem('ui:mode', theme);
+    localStorage.setItem('ui:palette', active.name);
+    localStorage.setItem('ui:radius', borderStyle);
+    localStorage.setItem('ui:numfmt', numberFmt);
+  }, [theme, palette, paletteList, borderStyle, numberFmt]);
+
+  // Fullscreen
+  const [isFs, setIsFs] = useState(false);
+  const toggleFs = () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen?.();
+      setIsFs(true);
+    } else {
+      document.exitFullscreen?.();
+      setIsFs(false);
+    }
+  };
+
+  // Búsqueda rápida (Ctrl+F)
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [activeIdx, setActiveIdx] = useState(0);
+  const searchInputRef = useRef(null);
+  const modules = [
+    { key: 'inventario', label: 'Inventario', icon: '📦' },
+    { key: 'produccion', label: 'Producción', icon: '🏭' },
+    { key: 'compras', label: 'Compras', icon: '🛒' },
+    { key: 'ventas', label: 'Ventas', icon: '🧾' },
+    { key: 'calidad', label: 'Calidad', icon: '✅' },
+    { key: 'reportes', label: 'Reportes', icon: '📊' },
+    { key: 'finanzas', label: 'Finanzas', icon: '💰' },
+    { key: 'config', label: 'Configuración', icon: '⚙️' }
+  ];
+  const filteredModules = modules.filter(m => m.label.toLowerCase().includes(searchQuery.toLowerCase()));
+  useEffect(() => { if (searchOpen) setTimeout(()=> searchInputRef.current?.focus(), 60); }, [searchOpen]);
+  useEffect(() => { setActiveIdx(0); }, [searchQuery]);
+  const openModule = (key) => { setPanel(key); setSearchOpen(false); setSearchQuery(''); };
+  const onKeyGlobal = useCallback((e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+      e.preventDefault(); setSearchOpen(true); return;
+    }
+    if (searchOpen) {
+      if (e.key === 'Escape') { setSearchOpen(false); }
+      if (e.key === 'ArrowDown') { e.preventDefault(); setActiveIdx(i => Math.min(filteredModules.length-1, i+1)); }
+      if (e.key === 'ArrowUp') { e.preventDefault(); setActiveIdx(i => Math.max(0, i-1)); }
+      if (e.key === 'Enter') { e.preventDefault(); const mod = filteredModules[activeIdx]; if (mod) openModule(mod.key); }
+    }
+  }, [searchOpen, filteredModules, activeIdx]);
+  useEffect(() => { window.addEventListener('keydown', onKeyGlobal); return () => window.removeEventListener('keydown', onKeyGlobal); }, [onKeyGlobal]);
+
+  const handleLogoUpload = (file) => {
+    if (!file) return; const reader = new FileReader();
+    reader.onload = (ev) => { setLogoData(ev.target.result); localStorage.setItem('ui:logo', ev.target.result); };
+    reader.readAsDataURL(file);
+  };
 
   const fetchGranos = async () => {
     const res = await fetch(API_URL);
@@ -189,7 +250,7 @@ function App() {
   };
 
   const [panel, setPanel] = useState('inicio');
-  const permiteConfig = user && ['admin','it','rrhh'].includes(user.rol);
+  // const permiteConfig = user && ['admin','it','rrhh'].includes(user.rol); // (No usado tras rediseño de landing)
   const USERS_URL = '/api/usuario';
   const [users, setUsers] = useState([]);
   const [newUser, setNewUser] = useState({ nombre:'', email:'', password:'', rol:'operador' });
@@ -509,21 +570,67 @@ function App() {
   }
 
   if (panel === 'inicio') {
+    const openAndLoad = (key) => {
+      if (key === 'inventario') setPanel('inventario');
+      if (key === 'produccion') { setPanel('produccion'); loadOPs(); }
+      if (key === 'compras') { setPanel('compras'); loadProveedores(); loadOrdenes(); loadRecepciones(); }
+      if (key === 'ventas') { setPanel('ventas'); loadClientes(); loadProductosPT(); loadPedidos(); loadFacturas(); }
+      if (key === 'calidad') { setPanel('calidad'); loadRecepciones(); loadQCRecepciones(); loadQCProceso(); loadNCs(); loadOPs(); }
+      if (key === 'reportes') { setPanel('reportes'); loadKpis(); loadVentasDiarias(7); loadMerma(30); }
+      if (key === 'finanzas') { setPanel('finanzas'); loadFinanzas(); loadProveedores(); loadOrdenes(); loadClientes(); loadPedidos(); loadFacturas(); loadAging(); loadTC(false); }
+      if (key === 'config') { setPanel('config'); cargarUsuarios(); }
+    };
     return (
-      <div className="form-container" style={{ maxWidth: 420 }}>
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
-          <button
-            style={{ background: 'none', border: 'none', color: 'var(--color-boton)', fontWeight: 600, cursor: 'pointer', fontSize: 16 }}
-            onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
-            aria-label="Cambiar modo claro/oscuro"
-          >
-            {theme === 'light' ? '🌙 Modo oscuro' : '☀️ Modo claro'}
-          </button>
+      <>
+        <div className="user-badge">
+          <div style={{ fontSize:'.85rem', lineHeight:1.2 }}>
+            <strong>{user.nombre}</strong><br />
+            <span style={{ fontSize:'.65rem', opacity:.75 }}>{user.rol}</span>
+          </div>
+          <button className="btn btn--sm btn--secondary" onClick={handleLogout}>Salir</button>
         </div>
-        <h2>Bienvenido, {user.nombre}!</h2>
-        <div style={{ margin: '1.2rem 0', fontSize: '1.1rem' }}>
-          <b>Rol:</b> {user.rol === 'admin' ? 'Administrador' : 'Operador'}
+        <button className="fullscreen-toggle" onClick={toggleFs} aria-label="Pantalla completa">{isFs ? '⤢' : '⤢'}</button>
+        <button className="palette-trigger" onClick={()=> setShowPalette(s=>!s)} aria-label="Temas y personalización">🎨</button>
+        {showPalette && (
+          <div className="palette-panel" onKeyDown={e=> e.stopPropagation()}>
+            <div style={{ fontWeight:600, marginBottom:6, fontSize:'.9rem' }}>Light Theme</div>
+            <div className="palette-row">
+              {LIGHT_THEMES.map(p => (
+                <div key={p.name} className={`swatch ${palette===p.name? 'selected':''}`} style={{ background:p.accent }} onClick={()=> { setTheme('light'); setPalette(p.name); }} title={p.label} />
+              ))}
+            </div>
+            <div style={{ fontWeight:600, margin:'4px 0 6px', fontSize:'.9rem' }}>Dark Theme</div>
+            <div className="palette-row">
+              {DARK_THEMES.map(p => (
+                <div key={p.name} className={`swatch ${palette===p.name? 'selected':''}`} style={{ background:p.accent }} onClick={()=> { setTheme('dark'); setPalette(p.name); }} title={p.label} />
+              ))}
+            </div>
+            <div style={{ display:'flex', gap:8, margin:'10px 0 8px', flexWrap:'wrap' }}>
+              <button className="btn btn--sm btn--secondary" onClick={()=> setTheme(t=> t==='light' ? 'dark':'light')}>{theme==='light'? '🌙 Oscuro':'☀️ Claro'}</button>
+              <button className="btn btn--sm btn--secondary" onClick={()=> setBorderStyle(r=> r==='rounded'?'flat':'rounded')}>{borderStyle==='rounded'?'🔲 Esquinas planas':'🟢 Esquinas redondas'}</button>
+              <button className="btn btn--sm btn--secondary" onClick={()=> setNumberFmt(f=> f==='fin'? 'natural':'fin')}>{numberFmt==='fin'?'123 Financiero':'123 Natural'}</button>
+            </div>
+            <div style={{ fontSize:'.65rem', opacity:.6 }}>Preferencias guardadas localmente · {palette}</div>
+          </div>
+        )}
+        <div className="form-container" style={{ maxWidth:920, animation:'fadeIn .6s ease' }}>
+          <div style={{ textAlign:'center', marginBottom:'1.2rem' }}>
+            {logoData ? <img src={logoData} alt="Logo" style={{ maxWidth:140, maxHeight:120, objectFit:'contain', filter: theme==='dark'? 'drop-shadow(0 4px 8px rgba(0,0,0,.6))':'' }} /> : <h1 className="brand-logo">Cafe<span style={{ fontWeight:300 }}>Gourmet</span></h1>}
+            <h2 style={{ margin:'0.4rem 0 .2rem', fontSize:'1.9rem' }}>Bienvenido a <span style={{ color:'var(--accent)' }}>Cafe Gourmet</span>, {user.nombre.split(' ')[0]} ☕</h2>
+            <div className="tagline">El verdadero sabor del café</div>
+          </div>
+          <div className="landing-grid">
+            {modules.map(m => (
+              <div key={m.key} tabIndex={0} className="landing-card" onClick={()=> openAndLoad(m.key)} onKeyDown={e=> { if(e.key==='Enter') openAndLoad(m.key); }}>
+                <div style={{ fontSize:'1.8rem' }}>{m.icon}</div>
+                <h4>{m.label}</h4>
+                {m.key==='reportes' && <span className="ribbon">KPIs</span>}
+              </div>
+            ))}
+          </div>
+          <div style={{ marginTop:'2rem', textAlign:'center', fontSize:'.75rem', opacity:.55 }}>© {new Date().getFullYear()} Cafe Gourmet – Interfaz adaptativa</div>
         </div>
+<<<<<<< HEAD
   <button style={{ marginBottom: 16, width: '100%' }} className="btn btn--primary" onClick={() => setPanel('inventario')}>Ir a Inventario de Granos</button>
   <button style={{ marginBottom: 16, width: '100%' }} className="btn" onClick={() => { setPanel('produccion'); loadOPs(); }}>Ir a Producción</button>
   <button style={{ marginBottom: 16, width: '100%' }} className="btn" onClick={() => { setPanel('proveedores'); loadProveedores(); }}>Ir a Proveedores</button>
@@ -551,6 +658,25 @@ function App() {
   )}
   <button className="btn btn--danger" style={{ width: '100%' }} onClick={handleLogout}>Cerrar sesión</button>
       </div>
+=======
+        {searchOpen && (
+          <div className="search-overlay" onClick={()=> setSearchOpen(false)}>
+            <div className="search-box" onClick={e=> e.stopPropagation()}>
+              <input ref={searchInputRef} placeholder="Buscar módulo… (Esc para cerrar)" value={searchQuery} onChange={e=> setSearchQuery(e.target.value)} />
+              <div className="search-results">
+                {filteredModules.map((m,i)=> (
+                  <div key={m.key} className={`search-item ${i===activeIdx? 'active':''}`} onMouseEnter={()=> setActiveIdx(i)} onClick={()=> openAndLoad(m.key)}>
+                    <span>{m.icon} {m.label}</span>
+                    <span style={{ fontSize:'.65rem', opacity:.6 }}>Enter</span>
+                  </div>
+                ))}
+                {filteredModules.length===0 && <div className="search-item" style={{ opacity:.6 }}>Sin resultados</div>}
+              </div>
+            </div>
+          </div>
+        )}
+      </>
+>>>>>>> e6c2bab (feat: UI theming frontend + backend preferencias (usuario paleta, logo, endpoints))
     );
   }
 
@@ -870,6 +996,20 @@ function App() {
         <div className="panel muted" style={{ marginBottom: 12 }}>Usuario: <b>{user.nombre}</b> ({user.rol})</div>
 
         <div className="panel" style={{ marginBottom: 16 }}>
+        <div className="panel" style={{ marginBottom:16 }}>
+          <div className="panel__title">Identidad Visual</div>
+          <div style={{ display:'flex', gap:16, flexWrap:'wrap', alignItems:'center' }}>
+            <div>
+              <div style={{ fontSize:'.75rem', opacity:.6, marginBottom:4 }}>Logo actual</div>
+              {logoData ? <img src={logoData} alt="Logo" style={{ maxWidth:120, maxHeight:80, objectFit:'contain', border:'1px solid var(--input-border)', padding:4, borderRadius:8 }} /> : <div style={{ width:120, height:80, display:'flex', alignItems:'center', justifyContent:'center', fontSize:'.7rem', border:'1px dashed var(--input-border)', borderRadius:8 }}>Sin logo</div>}
+            </div>
+            <div style={{ flex:1, minWidth:220 }}>
+              <label style={{ fontSize:'.75rem', opacity:.7 }}>Subir nuevo logo (PNG/JPG ≤ 300KB)</label>
+              <input type="file" accept="image/png,image/jpeg" onChange={e=> { const f=e.target.files?.[0]; if(!f) return; if(f.size>300*1024){ alert('Archivo demasiado grande (>300KB)'); return;} handleLogoUpload(f); }} />
+              <div style={{ fontSize:'.6rem', opacity:.55, marginTop:4 }}>Se guarda localmente; integración backend de almacenamiento se puede añadir luego.</div>
+            </div>
+          </div>
+        </div>
           <div className="panel__title">👤 Clientes</div>
           <form onSubmit={async(e)=>{
             e.preventDefault();
