@@ -1,0 +1,32 @@
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "node src/app.js",
+    "start:dev": "set PORT=3000&& set HOST=127.0.0.1&& node src/app.js",
+    "test": "echo 'Usa npm run test:costeo'",
+    "test:costeo": "node tests/costeo.js",
+    "test:advanced": "node tests/advanced.js",
+    "test:fefo": "node tests/fefo.js",
+    "test:all": "npm run test:costeo && npm run test:advanced && npm run test:fefo"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "bcryptjs": "^3.0.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^5.1.0",
+    "express-rate-limit": "^8.1.0",
+    "helmet": "^8.1.0",
+    "joi": "^18.0.1",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.18.0",
+    "morgan": "^1.10.1",
+    "multer": "^2.0.2",
+    "node-fetch": "^2.6.7"
+  }
+}
