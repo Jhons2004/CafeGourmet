@@ -493,48 +493,139 @@ function App() {
 
   if (!user) {
     return (
-      <div className="login-container">
-        <div className="login-box">
-          <h1 className="login-title">Café Gourmet</h1>
-          <p className="login-subtitle">Sistema de Gestión Empresarial</p>
-          
-          {apiStatus && (
-            <div style={{ textAlign: 'center', marginBottom: 16, fontSize: 13, color: apiStatus.startsWith('online') ? '#27ae60' : '#e74c3c', padding: '8px', background: '#f8f9fa', borderRadius: '6px' }}>
-              Backend: {apiStatus}
-            </div>
-          )}
-          
-          {authView === 'login' && (
-            <>
-              <form onSubmit={handleLogin} style={{ marginBottom: 16 }}>
-                <label>Email:</label>
-                <input type="text" name="email" value={login.email} onChange={handleLoginChange} required autoComplete="username" />
-                <label>Contraseña:</label>
-                <input type="password" name="password" value={login.password} onChange={handleLoginChange} required autoComplete="current-password" />
-                <button type="submit" className="btn btn--primary" style={{ width: '100%', marginTop: '1rem' }}>Iniciar Sesión</button>
-              </form>
-              {loginMsg && <div style={{ color: '#e74c3c', textAlign: 'center', padding: '8px', background: '#fee', borderRadius: '6px' }}>{loginMsg}</div>}
-            </>
-          )}
-          
-          {authView === 'change' && (
-            <>
-              <form onSubmit={handleChangePassword} style={{ marginBottom: 16 }}>
-                <label>Email o usuario:</label>
-                <input type="text" value={changeData.email} onChange={e => setChangeData({ ...changeData, email: e.target.value })} required />
-                <label>Nueva contraseña:</label>
-                <input type="password" value={changeData.nuevaPassword} onChange={e => setChangeData({ ...changeData, nuevaPassword: e.target.value })} required />
-                <label>Confirmar contraseña:</label>
-                <input type="password" value={changeData.confirm} onChange={e => setChangeData({ ...changeData, confirm: e.target.value })} required />
-                <div style={{ display:'flex', gap:'0.5rem', marginTop: '1rem' }}>
-                  <button type="submit" className="btn btn--primary" style={{ flex: 1 }}>Actualizar</button>
-                  <button type="button" className="btn btn--secondary" onClick={() => setAuthView('login')} style={{ flex: 1 }}>Volver</button>
-                </div>
-              </form>
-              {changeMsg && <div style={{ color: changeMsg.includes('actualizada') ? '#27ae60' : '#e74c3c', textAlign: 'center', padding: '8px', background: changeMsg.includes('actualizada') ? '#efffef' : '#fee', borderRadius: '6px' }}>{changeMsg}</div>}
-            </>
-          )}
+      <div className="form-container">
+        <div style={{ textAlign: 'center', marginBottom: 16, fontSize: '0.85rem', opacity: 0.7 }}>
+          Sistema activo
         </div>
+        
+        {apiStatus && (
+          <div style={{ 
+            textAlign: 'center', 
+            marginBottom: 16, 
+            fontSize: '0.85rem', 
+            color: apiStatus.startsWith('online') ? '#27ae60' : '#e74c3c',
+            padding: '8px',
+            background: apiStatus.startsWith('online') ? '#efffef' : '#fee',
+            borderRadius: '8px'
+          }}>
+            Backend: {apiStatus}
+          </div>
+        )}
+
+        <div className="panel" style={{ marginBottom: 16 }}>
+          <div className="panel__title">☕ Café Gourmet</div>
+          <p style={{ textAlign: 'center', opacity: 0.8, marginBottom: 0 }}>
+            Sistema de Gestión Empresarial
+          </p>
+        </div>
+        
+        {authView === 'login' && (
+          <>
+            <form onSubmit={handleLogin} className="panel" style={{ marginBottom: 16 }}>
+              <div className="panel__title">Iniciar sesión</div>
+              <label>Email:</label>
+              <input 
+                type="text" 
+                name="email" 
+                value={login.email} 
+                onChange={handleLoginChange} 
+                required 
+                autoComplete="username"
+                placeholder="usuario@cafe.com"
+              />
+              <label>Contraseña:</label>
+              <input 
+                type="password" 
+                name="password" 
+                value={login.password} 
+                onChange={handleLoginChange} 
+                required 
+                autoComplete="current-password"
+                placeholder="••••••••"
+              />
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem', alignItems: 'center', justifyContent: 'space-between' }}>
+                <button type="submit" className="btn btn--primary" style={{ flex: 1 }}>
+                  Entrar
+                </button>
+                <button 
+                  type="button" 
+                  className="btn btn--link" 
+                  onClick={() => setAuthView('change')}
+                  style={{ fontSize: '0.85rem' }}
+                >
+                  ¿Olvidaste tu contraseña?
+                </button>
+              </div>
+            </form>
+            {loginMsg && (
+              <div className="panel" style={{ 
+                color: '#e74c3c', 
+                background: '#fee',
+                textAlign: 'center',
+                padding: '12px',
+                fontSize: '0.9rem'
+              }}>
+                {loginMsg}
+              </div>
+            )}
+          </>
+        )}
+        
+        {authView === 'change' && (
+          <>
+            <form onSubmit={handleChangePassword} className="panel" style={{ marginBottom: 16 }}>
+              <div className="panel__title">Cambiar contraseña</div>
+              <label>Email o usuario:</label>
+              <input 
+                type="text" 
+                value={changeData.email} 
+                onChange={e => setChangeData({ ...changeData, email: e.target.value })} 
+                required
+                placeholder="usuario@cafe.com"
+              />
+              <label>Nueva contraseña:</label>
+              <input 
+                type="password" 
+                value={changeData.nuevaPassword} 
+                onChange={e => setChangeData({ ...changeData, nuevaPassword: e.target.value })} 
+                required
+                placeholder="••••••••"
+              />
+              <label>Confirmar contraseña:</label>
+              <input 
+                type="password" 
+                value={changeData.confirm} 
+                onChange={e => setChangeData({ ...changeData, confirm: e.target.value })} 
+                required
+                placeholder="••••••••"
+              />
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
+                <button type="submit" className="btn btn--primary" style={{ flex: 1 }}>
+                  Actualizar contraseña
+                </button>
+                <button 
+                  type="button" 
+                  className="btn btn--secondary" 
+                  onClick={() => setAuthView('login')}
+                  style={{ flex: 1 }}
+                >
+                  Volver
+                </button>
+              </div>
+            </form>
+            {changeMsg && (
+              <div className="panel" style={{ 
+                color: changeMsg.includes('actualizada') ? '#27ae60' : '#e74c3c',
+                background: changeMsg.includes('actualizada') ? '#efffef' : '#fee',
+                textAlign: 'center',
+                padding: '12px',
+                fontSize: '0.9rem'
+              }}>
+                {changeMsg}
+              </div>
+            )}
+          </>
+        )}
       </div>
     );
   }
