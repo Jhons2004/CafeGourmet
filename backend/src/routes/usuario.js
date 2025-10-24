@@ -47,7 +47,6 @@ router.get('/permisos', requireAuth, (req, res)=>{
 
 // Preferencias UI
 router.get('/preferencias', requireAuth, usuarioController.obtenerPreferencias);
-const schema = require('../validators/usuario');
 router.patch('/preferencias', requireAuth, validate(schema.actualizarPreferencias), usuarioController.actualizarPreferencias);
 router.post('/logo', requireAuth, upload.single('logo'), usuarioController.subirLogo);
 router.delete('/logo', requireAuth, usuarioController.eliminarLogo);
