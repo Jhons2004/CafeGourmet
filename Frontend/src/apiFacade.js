@@ -352,22 +352,6 @@ export const apiFacade = {
       }
     },
     
-    // Stock de Productos Terminados
-    stockProductos: {
-      listar: async () => {
-        return apiRequest(`${INVENTARIO_URL}/stock-productos`, {
-          headers: authHeaders()
-        });
-      },
-      crear: async (data) => {
-        return apiRequest(`${INVENTARIO_URL}/stock-productos`, {
-          method: 'POST',
-          headers: authHeaders(),
-          body: JSON.stringify(data)
-        });
-      }
-    },
-    
     // Lotes
     lotes: {
       listar: async () => {

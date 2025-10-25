@@ -98,10 +98,8 @@ export function ObservabilidadPanel() {
   }, [generarMetricas, generarOperacionesRecientes, generarAlertas]);
 
   useEffect(() => {
+    // Cargar una sola vez al abrir el panel (sin auto-refresh para no interrumpir la escritura)
     cargarDatos();
-    // Actualizar cada 5 segundos
-    const interval = setInterval(cargarDatos, 5000);
-    return () => clearInterval(interval);
   }, [cargarDatos]);
 
   // Calcular tasa de éxito
@@ -111,6 +109,12 @@ export function ObservabilidadPanel() {
 
   return (
     <div>
+      {/* Controles de actualización manual (sin auto-refresh) */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '0.75rem' }}>
+        <button className="btn btn--secondary" onClick={cargarDatos} disabled={loading}>
+          {loading ? 'Actualizando…' : 'Refrescar ahora'}
+        </button>
+      </div>
       {msg && (
         <div className={`alert ${msg.tipo === 'error' ? 'alert--danger' : 'alert--success'}`} style={{ marginBottom: '1.5rem' }}>
           <span>{msg.tipo === 'error' ? '❌' : '✅'}</span>

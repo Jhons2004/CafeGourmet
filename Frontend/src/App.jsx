@@ -1,13 +1,16 @@
-
-
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import './App.css';
+import './AppSidebar.css';
 import { LIGHT_THEMES, DARK_THEMES, applyPalette } from './themes';
+import TrazabilidadPanel from './panels/TrazabilidadPanel';
+import StockProductosPanel from './panels/StockProductosPanel';
+import { ObservabilidadPanel } from './panels/ObservabilidadPanel';
 
 const API_URL = '/api/inventario';
 const PROD_URL = '/api/produccion';
 const LOGIN_URL = '/api/usuario/login';
 const RESET_SIMPLE_URL = '/api/usuario/reset-password-simple';
+const USUARIOS_URL = '/api/usuario';
 const HEALTH_URL = '/api/health';
 const VENTAS_URL = '/api/ventas';
 const CALIDAD_URL = '/api/calidad';
@@ -24,6 +27,7 @@ function App() {
   const [token, setToken] = useState('');
   const [loginMsg, setLoginMsg] = useState('');
   const [apiStatus, setApiStatus] = useState('');
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
 
   // Vistas de autenticación
   const [authView, setAuthView] = useState('login'); // 'login' | 'change'
@@ -36,7 +40,34 @@ function App() {
   const [borderStyle, setBorderStyle] = useState(() => localStorage.getItem('ui:radius') || 'rounded');
   const [numberFmt, setNumberFmt] = useState(() => localStorage.getItem('ui:numfmt') || 'fin');
   const [logoData, setLogoData] = useState(() => localStorage.getItem('ui:logo') || '');
+  
+  // Control global para pausar/reanudar cargas de datos de la app
+  const [servicesEnabled, setServicesEnabled] = useState(() => {
+    const v = localStorage.getItem('ui:services');
+    return v !== 'off';
+  });
+  
+  useEffect(() => {
+    localStorage.setItem('ui:services', servicesEnabled ? 'on' : 'off');
+  }, [servicesEnabled]);
+  
+  // Memoizar funciones que no cambian frecuentemente
+  const restartServices = useCallback(() => {
+    setServicesEnabled(false);
+    setTimeout(() => setServicesEnabled(true), 600);
+  }, []);
+  
   const paletteList = theme === 'light' ? LIGHT_THEMES : DARK_THEMES;
+  
+  // Responsivo: detectar móvil para colapsar sidebar por defecto y mostrar backdrop
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth <= 768);
+    onResize();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+  
   useEffect(() => {
     const active = paletteList.find(p => p.name === palette) || paletteList[0];
     applyPalette(theme, active);
@@ -46,10 +77,15 @@ function App() {
     localStorage.setItem('ui:radius', borderStyle);
     localStorage.setItem('ui:numfmt', numberFmt);
   }, [theme, palette, paletteList, borderStyle, numberFmt]);
+  
+  // Colapsar automáticamente en móvil
+  useEffect(() => {
+    if (isMobile) setSidebarCollapsed(true);
+  }, [isMobile]);
 
   // Fullscreen
   const [isFs, setIsFs] = useState(false);
-  const toggleFs = () => {
+  const toggleFs = useCallback(() => {
     if (!document.fullscreenElement) {
       document.documentElement.requestFullscreen?.();
       setIsFs(true);
@@ -57,14 +93,375 @@ function App() {
       document.exitFullscreen?.();
       setIsFs(false);
     }
-  };
+  }, []);
+
+  // ===== Sidebar plegable =====
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [panel, setPanel] = useState('observabilidad');
+  
+  const USERS_URL = '/api/usuario';
+  const [users, setUsers] = useState([]);
+  const [newUser, setNewUser] = useState({ nombre:'', email:'', password:'', rol:'operador' });
+  
+  // Producción state
+  const [ops, setOps] = useState([]);
+  const [newOP, setNewOP] = useState({ producto: '', receta: [{ tipo: 'arabica', cantidad: 1 }] });
+  const [stageSel, setStageSel] = useState('Tostado');
+  const [modal, setModal] = useState({ open:false, opId:null, receta:[] });
+  
+  // Compras state
+  const COMPRAS_URL = '/api/compras';
+  const [proveedores, setProveedores] = useState([]);
+  const [ordenes, setOrdenes] = useState([]);
+  const [recepciones, setRecepciones] = useState([]);
+  const [newProveedor, setNewProveedor] = useState({ nombre: '', ruc: '', contacto: '', telefono: '', direccion: '', email: '' });
+  const [newOC, setNewOC] = useState({ proveedor: '', items: [{ tipo: 'arabica', cantidad: 100, precioUnitario: 3.0 }] });
+  const [newRecepcion, setNewRecepcion] = useState({ ordenCompra: '', lotes: [{ tipo: 'arabica', cantidad: 50, costoUnitario: 3.0, lote: '', fechaCosecha: '', humedad: '' }], observaciones: '' });
+  const [comprasMsg, setComprasMsg] = useState('');
+
+  // Ventas state
+  const [clientes, setClientes] = useState([]);
+  const [productosPT, setProductosPT] = useState([]);
+  const [pedidos, setPedidos] = useState([]);
+  const [facturas, setFacturas] = useState([]);
+  const [ventasMsg, setVentasMsg] = useState('');
+  const [newCliente, setNewCliente] = useState({ nombre:'', ruc:'', email:'', telefono:'', direccion:'' });
+  const [newProductoPT, setNewProductoPT] = useState({ sku:'', nombre:'', unidad:'kg' });
+  const [newPedido, setNewPedido] = useState({ cliente:'', items:[{ producto:'', cantidad:1, precio:0 }] });
+
+  // Validaciones simples sin useMemo (son cálculos muy rápidos y no justifican la memoización)
+  const proveedorValido = newProveedor.nombre.trim().length > 0;
+  const ordenValida = newOC.proveedor && newOC.items.length > 0;
+  const recepcionValida = newRecepcion.ordenCompra && 
+                          newRecepcion.lotes.length > 0 && 
+                          newRecepcion.lotes.every(l => l.lote && l.lote.trim().length > 0);
+  const pedidoValido = newPedido.cliente && !newPedido.items.some(i=> !i.producto || i.cantidad<=0);
+
+  // Reportes / Dashboard
+  const [kpis, setKpis] = useState({ ventasHoy:0, facturasHoy:0, pedidosConfirmados:0, pedidosDespachados:0, stockPT:0, opsEnProceso:0, lotesBloqueados:0 });
+  const [ventasDiarias, setVentasDiarias] = useState([]);
+  const [mermaAgg, setMermaAgg] = useState({ merma:0, cerradas:0 });
+
+  // Finanzas state and actions
+  const FINANZAS_URL = '/api/finanzas';
+  const [tc, setTc] = useState(null);
+  const [cxp, setCxp] = useState([]);
+  const [cxc, setCxc] = useState([]);
+  const [cxpForm, setCxpForm] = useState({ proveedorId:'', ordenCompraId:'', fechaVencimiento:'', moneda:'GTQ', monto:'' });
+  const [cxcForm, setCxcForm] = useState({ clienteId:'', facturaId:'', fechaVencimiento:'', moneda:'GTQ', monto:'' });
+  const [aging, setAging] = useState(null);
+  const [facturaProvModal, setFacturaProvModal] = useState({ open:false, cxpId:'', numero:'', fecha:'', adjuntoUrl:'', observaciones:'', tcUsado:'', tcFuente:'', tcFecha:'', archivo:null, uploading:false, progress:0, errorMsg:'' });
+
+  const [qcRecepciones, setQcRecepciones] = useState([]);
+  const [newQCRecep, setNewQCRecep] = useState({ recepcion:'', lote:'', mediciones:{ humedad:'', acidez:'', defectos:'' }, resultado:'aprobado', notas:'' });
+
+  // Calidad state (QC de proceso)
+  const [qcProceso, setQcProceso] = useState([]);
+  const [newQCProc, setNewQCProc] = useState({ op:'', etapa:'Tostado', checklist:[{ nombre:'Parámetros OK', ok:true }], resultado:'aprobado', notas:'' });
+
+  // Calidad state (No Conformidades)
+  const [ncs, setNCs] = useState([]);
+  const [newNC, setNewNC] = useState({ recurso:'lote', referencia:'', motivo:'', acciones:'' });
+
+  // Memoizar funciones de carga para evitar recrearlas
+  const loadOPs = useCallback(async () => {
+    if (!servicesEnabled) return;
+    try {
+      const r = await fetch(PROD_URL);
+      if (r.ok) {
+        const data = await r.json();
+        setOps(Array.isArray(data) ? data : (data.data || []));
+      }
+    }
+    catch (e) { console.warn('No se pudo cargar OPs', e); }
+  }, [servicesEnabled]);
+
+  const loadProveedores = useCallback(async () => {
+    if (!servicesEnabled) return;
+    try { 
+      const r = await fetch(`${COMPRAS_URL}/proveedores`, { headers: token ? { Authorization: `Bearer ${token}` } : {} }); 
+      if (r.ok) setProveedores(await r.json()); 
+    } catch (e) { console.warn('No se pudo cargar proveedores', e); }
+  }, [servicesEnabled, token]);
+
+  const loadOrdenes = useCallback(async () => {
+    if (!servicesEnabled) return;
+    try { 
+      const r = await fetch(`${COMPRAS_URL}/ordenes`, { headers: token ? { Authorization: `Bearer ${token}` } : {} }); 
+      if (r.ok) setOrdenes(await r.json()); 
+    } catch (e) { console.warn('No se pudo cargar órdenes', e); }
+  }, [servicesEnabled, token]);
+
+  const loadRecepciones = useCallback(async () => {
+    if (!servicesEnabled) return;
+    try { 
+      const r = await fetch(`${COMPRAS_URL}/recepciones`, { headers: token ? { Authorization: `Bearer ${token}` } : {} }); 
+      if (r.ok) setRecepciones(await r.json()); 
+    } catch (e) { console.warn('No se pudo cargar recepciones', e); }
+  }, [servicesEnabled, token]);
+
+  const loadClientes = useCallback(async () => {
+    if (!servicesEnabled) return;
+    try { 
+      const r = await fetch(`${VENTAS_URL}/clientes`, { headers: token? { Authorization: `Bearer ${token}` } : {} }); 
+      if (r.ok) setClientes(await r.json()); 
+    }
+    catch(e){ console.warn('No se pudo cargar clientes', e); }
+  }, [servicesEnabled, token]);
+
+  const loadProductosPT = useCallback(async () => {
+    if (!servicesEnabled) return;
+    try { 
+      const r = await fetch(`${VENTAS_URL}/productos`, { headers: token? { Authorization: `Bearer ${token}` } : {} }); 
+      if (r.ok) setProductosPT(await r.json()); 
+    }
+    catch(e){ console.warn('No se pudo cargar productos PT', e); }
+  }, [servicesEnabled, token]);
+
+  const loadPedidos = useCallback(async () => {
+    if (!servicesEnabled) return;
+    try { 
+      const r = await fetch(`${VENTAS_URL}/pedidos`, { headers: token? { Authorization: `Bearer ${token}` } : {} }); 
+      if (r.ok) setPedidos(await r.json()); 
+    }
+    catch(e){ console.warn('No se pudo cargar pedidos', e); }
+  }, [servicesEnabled, token]);
+
+  const loadFacturas = useCallback(async () => {
+    if (!servicesEnabled) return;
+    try { 
+      const r = await fetch(`${VENTAS_URL}/facturas`, { headers: token? { Authorization: `Bearer ${token}` } : {} }); 
+      if (r.ok) setFacturas(await r.json()); 
+    }
+    catch(e){ console.warn('No se pudo cargar facturas', e); }
+  }, [servicesEnabled, token]);
+
+  const loadQCRecepciones = useCallback(async () => {
+    if (!servicesEnabled) return;
+    try { 
+      const r = await fetch(`${CALIDAD_URL}/recepciones`, { headers: token? { Authorization: `Bearer ${token}` } : {} }); 
+      if (r.ok) setQcRecepciones(await r.json()); 
+    }
+    catch(e){ console.warn('No se pudo cargar QC recepciones', e); }
+  }, [servicesEnabled, token]);
+
+  const loadQCProceso = useCallback(async () => {
+    if (!servicesEnabled) return;
+    try { 
+      const r = await fetch(`${CALIDAD_URL}/proceso`, { headers: token? { Authorization: `Bearer ${token}` } : {} }); 
+      if (r.ok) setQcProceso(await r.json()); 
+    }
+    catch(e){ console.warn('No se pudo cargar QC proceso', e); }
+  }, [servicesEnabled, token]);
+
+  const loadNCs = useCallback(async () => {
+    if (!servicesEnabled) return;
+    try { 
+      const r = await fetch(`${CALIDAD_URL}/nc`, { headers: token? { Authorization: `Bearer ${token}` } : {} }); 
+      if (r.ok) setNCs(await r.json()); 
+    }
+    catch(e){ console.warn('No se pudo cargar No Conformidades', e); }
+  }, [servicesEnabled, token]);
+
+  const loadKpis = useCallback(async()=>{
+    if(!servicesEnabled) return; 
+    try{ 
+      const r = await fetch(`${REPORTES_URL}/kpis`, { headers: token? { Authorization:`Bearer ${token}` } : {} }); 
+      if(r.ok) setKpis(await r.json()); 
+    } catch { /*noop*/ } 
+  }, [servicesEnabled, token]);
+
+  const loadVentasDiarias = useCallback(async(days=7)=>{
+    if(!servicesEnabled) return; 
+    try{ 
+      const r = await fetch(`${REPORTES_URL}/ventas-diarias?days=${days}`, { headers: token? { Authorization:`Bearer ${token}` } : {} }); 
+      if(r.ok) setVentasDiarias(await r.json()); 
+    } catch { /*noop*/ } 
+  }, [servicesEnabled, token]);
+
+  const loadMerma = useCallback(async(days=30)=>{
+    if(!servicesEnabled) return; 
+    try{ 
+      const r = await fetch(`${REPORTES_URL}/merma?days=${days}`, { headers: token? { Authorization:`Bearer ${token}` } : {} }); 
+      if(r.ok) setMermaAgg(await r.json()); 
+    } catch { /*noop*/ } 
+  }, [servicesEnabled, token]);
+
+  const loadFinanzas = useCallback(async ()=>{
+    if (!servicesEnabled) return;
+    try { 
+      const h = token? { Authorization:`Bearer ${token}`, 'Content-Type':'application/json' } : { 'Content-Type':'application/json' };
+      const [r1, r2] = await Promise.all([
+        fetch(`${FINANZAS_URL}/cxp`, { headers: h }),
+        fetch(`${FINANZAS_URL}/cxc`, { headers: h })
+      ]);
+      if(r1.ok) setCxp(await r1.json());
+      if(r2.ok) setCxc(await r2.json());
+    } catch { /*noop*/ }
+  }, [servicesEnabled, token]);
+
+  const loadAging = useCallback(async ()=>{
+    if (!servicesEnabled) return;
+    try { 
+      const r = await fetch(`${FINANZAS_URL}/aging`, { headers: token? { Authorization:`Bearer ${token}` } : {} }); 
+      if(r.ok) setAging(await r.json()); 
+    }
+    catch { /* noop */ }
+  }, [servicesEnabled, token]);
+
+  const loadTC = useCallback(async (force=false)=>{
+    if (!servicesEnabled) return;
+    try { 
+      const url = `${FINANZAS_URL}/tc${force? '?force=1':''}`;
+      const r = await fetch(url, { headers: token? { Authorization:`Bearer ${token}` } : {} }); 
+      if (r.ok) setTc(await r.json()); 
+    }
+    catch { /* noop */ }
+  }, [servicesEnabled, token]);
+
+  const cargarUsuarios = useCallback(async ()=>{
+    try { 
+      const r = await fetch(USERS_URL, { headers: token ? { Authorization: `Bearer ${token}` } : {} }); 
+      if (r.ok) setUsers(await r.json()); 
+    }
+    catch (e) { console.warn('No se pudo cargar usuarios', e); }
+  }, [token]);
+
+  // Memoizar la función de navegación para evitar re-renders innecesarios
+  const go = useCallback((key) => {
+    setPanel(key);
+    if (servicesEnabled) {
+      if (key === 'produccion') loadOPs();
+      if (key === 'compras' || key === 'proveedores') { loadProveedores(); loadOrdenes(); loadRecepciones(); }
+      if (key === 'ventas') { loadClientes(); loadProductosPT(); loadPedidos(); loadFacturas(); }
+      if (key === 'calidad') { loadRecepciones(); loadQCRecepciones(); loadQCProceso(); loadNCs(); loadOPs(); }
+      if (key === 'reportes') { loadKpis(); loadVentasDiarias(7); loadMerma(30); }
+      if (key === 'finanzas') { loadFinanzas(); loadProveedores(); loadOrdenes(); loadClientes(); loadPedidos(); loadFacturas(); loadAging(); loadTC(false); }
+      if (key === 'config') { cargarUsuarios(); }
+    }
+    // Trazabilidad, Stock y Observabilidad gestionan su propia carga interna
+    if (isMobile) setSidebarCollapsed(true);
+  }, [servicesEnabled, isMobile, loadOPs, loadProveedores, loadOrdenes, loadRecepciones, loadClientes, loadProductosPT, loadPedidos, loadFacturas, loadQCRecepciones, loadQCProceso, loadNCs, loadKpis, loadVentasDiarias, loadMerma, loadFinanzas, loadAging, loadTC, cargarUsuarios]);
+
+  // Memoizar componentes estáticos
+  const AppShell = useCallback(({ title, children }) => {
+    const sidebarModules = [
+      { key: 'inicio', label: 'Preferencias', icon: '🎨' },
+      { key: 'inventario', label: 'Inventario', icon: '📦' },
+      { key: 'compras', label: 'Compras', icon: '🛒' },
+      { key: 'produccion', label: 'Producción', icon: '🏭' },
+      { key: 'calidad', label: 'Calidad', icon: '✅' },
+      { key: 'ventas', label: 'Ventas', icon: '🧾' },
+      { key: 'finanzas', label: 'Finanzas', icon: '💼' },
+      { key: 'reportes', label: 'Reportes', icon: '📊' },
+      { key: 'trazabilidad', label: 'Trazabilidad', icon: '🧭' },
+      { key: 'stock', label: 'Stock PT', icon: '📦➕' },
+      { key: 'observabilidad', label: 'Observabilidad', icon: '📈' },
+      { key: 'config', label: 'Config', icon: '⚙️' }
+    ];
+
+    const handleLogout = useCallback(() => {
+      localStorage.removeItem('token');
+      console.log('🔓 Sesión cerrada');
+      setUser(null);
+      setToken('');
+      setPanel('observabilidad');
+    }, []);
+
+    return (
+      <div className="app-container">
+        <aside className={`sidebar ${sidebarCollapsed ? 'collapsed' : ''}`}>
+          <button type="button" className="sidebar-toggle" onClick={() => setSidebarCollapsed(v => !v)} title={sidebarCollapsed ? 'Expandir' : 'Colapsar'}>
+            {sidebarCollapsed ? '»' : '«'}
+          </button>
+          <div className="sidebar-header">
+            <div className="sidebar-brand">Café<br/>Gourmet</div>
+          </div>
+          <nav className="sidebar-nav">
+            {sidebarModules.map(m => (
+              <div key={m.key} className={`sidebar-item ${panel===m.key? 'active':''}`} title={m.label} onClick={() => go(m.key)}>
+                <span className="sidebar-item-icon">{m.icon}</span>
+                <span className="sidebar-item-label">{m.label}</span>
+              </div>
+            ))}
+          </nav>
+          <div style={{ padding:'1rem' }}>
+            <button type="button" className="sidebar-logout" onClick={handleLogout}>Salir</button>
+          </div>
+        </aside>
+        {(!sidebarCollapsed && isMobile) && (
+          <div className="sidebar-backdrop" onClick={() => setSidebarCollapsed(true)} />
+        )}
+        <section className="main-content">
+          <header className="top-header">
+            <div className="header-left">
+              <button type="button" className="menu-toggle" title="Menú" onClick={() => setSidebarCollapsed(false)} style={{ display: isMobile ? 'inline-flex' : 'none' }}>☰</button>
+              <h1 className="header-title">{title}</h1>
+            </div>
+            <div className="header-right">
+              <span className="chip" title={servicesEnabled? 'Servicios activos':'Servicios pausados'} style={{marginRight:8, background: servicesEnabled? 'var(--surface-muted)':'#ffc107', color: servicesEnabled? 'var(--color-texto)':'#3a2b00', padding:'2px 8px', borderRadius:12, fontSize:12}}>
+                {servicesEnabled? 'Servicios: activos' : 'Servicios: pausados'}
+              </span>
+              <button type="button" className="theme-toggle" title={servicesEnabled? 'Pausar servicios (no cargar datos)':'Reanudar servicios'} onClick={()=> setServicesEnabled(v=> !v)}>
+                {servicesEnabled? '⏸︎' : '▶︎'}
+              </button>
+              <button type="button" className="theme-toggle" title="Reiniciar servicios (pausar y reanudar)" onClick={restartServices}>↻</button>
+              <button type="button" className="theme-toggle" title={theme==='light'?'Cambiar a oscuro':'Cambiar a claro'} onClick={()=> setTheme(t=> t==='light'?'dark':'light')}>
+                {theme==='light'?'🌙':'☀️'}
+              </button>
+              <button type="button" className="theme-toggle" title="Colores y estilo" onClick={()=> setShowPalette(true)}>🎨</button>
+              <button type="button" className="theme-toggle" title="Pantalla completa" onClick={toggleFs}>{isFs? '⤢':'⤢'}</button>
+              <div className="user-info">
+                <div className="user-name">{(user && (user.nombre || user.email)) || 'Usuario'}</div>
+                <div className="user-role">{user?.rol || 'operador'}</div>
+              </div>
+            </div>
+          </header>
+          <main className="content-area">
+            {children}
+          </main>
+          {showPalette && (
+            <div className="personalizacion-overlay" onClick={()=> setShowPalette(false)}>
+              <div className="personalizacion-modal" onClick={e=> e.stopPropagation()}>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
+                  <h3 style={{ margin:0 }}>Personalización</h3>
+                  <button className="modal-close" onClick={()=> setShowPalette(false)}>✕</button>
+                </div>
+                <div className="mb-3">
+                  <div className="mb-1">Modo</div>
+                  <div style={{ display:'flex', gap:8 }}>
+                    <button className="btn" onClick={()=> setTheme('light')}>☀️ Claro</button>
+                    <button className="btn" onClick={()=> setTheme('dark')}>🌙 Oscuro</button>
+                  </div>
+                </div>
+                <div className="mb-3">
+                  <div className="mb-1">Paleta</div>
+                  <div className="palette-row" style={{ display:'flex', flexWrap:'wrap', gap:8 }}>
+                    {(theme==='light'? LIGHT_THEMES : DARK_THEMES).map(p => (
+                      <div key={p.name} className={`swatch ${palette===p.name? 'selected':''}`} style={{ width:28, height:28, borderRadius:6, background:p.accent, cursor:'pointer', outline: palette===p.name? '2px solid #fff':'none' }} onClick={()=> { setPalette(p.name); applyPalette(theme, p); localStorage.setItem('ui:palette', p.name); }} title={p.label} />
+                    ))}
+                  </div>
+                </div>
+                <div className="mb-3" style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+                  <button className="btn btn--secondary" onClick={()=> setBorderStyle(r=> r==='rounded'?'flat':'rounded')}>{borderStyle==='rounded'?'🔲 Esquinas planas':'🟢 Esquinas redondas'}</button>
+                  <button className="btn btn--secondary" onClick={()=> setNumberFmt(f=> f==='fin'? 'natural':'fin')}>{numberFmt==='fin'?'123 Financiero':'123 Natural'}</button>
+                </div>
+                <div style={{ fontSize:12, opacity:.8 }}>Preferencias guardadas localmente</div>
+              </div>
+            </div>
+          )}
+        </section>
+      </div>
+    );
+  }, [sidebarCollapsed, isMobile, panel, go, servicesEnabled, restartServices, theme, showPalette, palette, borderStyle, numberFmt, toggleFs, isFs, user]);
 
   // Búsqueda rápida (Ctrl+F)
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeIdx, setActiveIdx] = useState(0);
   const searchInputRef = useRef(null);
-  const modules = [
+  
+  const modules = useMemo(() => [
     { key: 'inventario', label: 'Inventario', icon: '📦' },
     { key: 'produccion', label: 'Producción', icon: '🏭' },
     { key: 'compras', label: 'Compras', icon: '🛒' },
@@ -72,43 +469,120 @@ function App() {
     { key: 'calidad', label: 'Calidad', icon: '✅' },
     { key: 'reportes', label: 'Reportes', icon: '📊' },
     { key: 'finanzas', label: 'Finanzas', icon: '💰' },
+    { key: 'trazabilidad', label: 'Trazabilidad', icon: '🧭' },
+    { key: 'stock', label: 'Stock PT', icon: '📦➕' },
+    { key: 'observabilidad', label: 'Observabilidad', icon: '📈' },
     { key: 'config', label: 'Configuración', icon: '⚙️' }
-  ];
-  const filteredModules = modules.filter(m => m.label.toLowerCase().includes(searchQuery.toLowerCase()));
-  useEffect(() => { if (searchOpen) setTimeout(()=> searchInputRef.current?.focus(), 60); }, [searchOpen]);
-  useEffect(() => { setActiveIdx(0); }, [searchQuery]);
-  const openModule = (key) => { setPanel(key); setSearchOpen(false); setSearchQuery(''); };
+  ], []);
+  
+  const filteredModules = useMemo(() => 
+    modules.filter(m => m.label.toLowerCase().includes(searchQuery.toLowerCase())),
+    [modules, searchQuery]
+  );
+  
+  useEffect(() => { 
+    if (searchOpen) setTimeout(()=> searchInputRef.current?.focus(), 60); 
+  }, [searchOpen]);
+  
+  useEffect(() => { 
+    setActiveIdx(0); 
+  }, [searchQuery]);
+  
+  const openModule = useCallback((key) => { 
+    setPanel(key); 
+    setSearchOpen(false); 
+    setSearchQuery(''); 
+  }, []);
+  
   const onKeyGlobal = useCallback((e) => {
+    // Evita atajos globales cuando el usuario está escribiendo en un campo
+    const tag = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : '';
+    const isEditable = tag === 'input' || tag === 'textarea' || tag === 'select' || (e.target && e.target.isContentEditable);
+    if (isEditable) return;
+    
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
-      e.preventDefault(); setSearchOpen(true); return;
+      e.preventDefault(); 
+      setSearchOpen(true); 
+      return;
     }
+    
     if (searchOpen) {
       if (e.key === 'Escape') { setSearchOpen(false); }
       if (e.key === 'ArrowDown') { e.preventDefault(); setActiveIdx(i => Math.min(filteredModules.length-1, i+1)); }
       if (e.key === 'ArrowUp') { e.preventDefault(); setActiveIdx(i => Math.max(0, i-1)); }
       if (e.key === 'Enter') { e.preventDefault(); const mod = filteredModules[activeIdx]; if (mod) openModule(mod.key); }
     }
-  }, [searchOpen, filteredModules, activeIdx]);
-  useEffect(() => { window.addEventListener('keydown', onKeyGlobal); return () => window.removeEventListener('keydown', onKeyGlobal); }, [onKeyGlobal]);
+  }, [searchOpen, filteredModules, activeIdx, openModule]);
+  
+  useEffect(() => { 
+    window.addEventListener('keydown', onKeyGlobal); 
+    return () => window.removeEventListener('keydown', onKeyGlobal); 
+  }, [onKeyGlobal]);
 
-  const handleLogoUpload = (file) => {
-    if (!file) return; const reader = new FileReader();
-    reader.onload = (ev) => { setLogoData(ev.target.result); localStorage.setItem('ui:logo', ev.target.result); };
+  const handleLogoUpload = useCallback((file) => {
+    if (!file) return; 
+    const reader = new FileReader();
+    reader.onload = (ev) => { 
+      setLogoData(ev.target.result); 
+      localStorage.setItem('ui:logo', ev.target.result); 
+    };
     reader.readAsDataURL(file);
-  };
+  }, []);
 
-  const fetchGranos = async () => {
+  const fetchGranos = useCallback(async () => {
     const res = await fetch(API_URL);
     const data = await res.json();
     setGranos(data);
-  };
+  }, []);
 
   useEffect(() => {
-    if (user) fetchGranos();
-  }, [user]);
+    if (user && servicesEnabled) fetchGranos();
+  }, [user, servicesEnabled, fetchGranos]);
+
+  // ========== RESTAURAR SESIÓN AL CARGAR ==========
+  useEffect(() => {
+    const checkAuth = async () => {
+      const storedToken = localStorage.getItem('token');
+      if (storedToken) {
+        try {
+          // Verificar si el token es válido consultando los permisos del usuario (con timeout corto)
+          const ctrl = new AbortController();
+          const timeout = setTimeout(() => ctrl.abort(), 2500);
+          const res = await fetch(`${USUARIOS_URL}/permisos`, {
+            headers: { Authorization: `Bearer ${storedToken}` },
+            signal: ctrl.signal
+          }).catch(() => {
+            // Si falló/timeout, tratamos como no autenticado pero liberamos la UI
+            return { ok: false, status: 0, json: async () => ({}) };
+          }).finally(() => clearTimeout(timeout));
+          
+          if (res.ok) {
+            const data = await res.json();
+            // Reconstruir objeto usuario básico con la información disponible
+            setUser({ rol: data.rol });
+            setToken(storedToken);
+            console.log('✅ Sesión restaurada - Rol:', data.rol);
+            // Ir directamente al panel principal bonito
+            setPanel('observabilidad');
+          } else {
+            // Token inválido, limpiar
+            localStorage.removeItem('token');
+            console.warn('⚠️ Token inválido, sesión limpiada');
+          }
+        } catch (error) {
+          console.error('Error verificando sesión:', error);
+          localStorage.removeItem('token');
+        }
+      }
+      setIsCheckingAuth(false);
+    };
+
+    checkAuth();
+  }, []);
 
   useEffect(() => {
-    // Healthcheck del backend
+    // Healthcheck del backend (respetando pausa de servicios)
+    if (!servicesEnabled) { setApiStatus('pausado'); return; }
     (async () => {
       try {
         const res = await fetch(HEALTH_URL);
@@ -118,17 +592,18 @@ function App() {
         } else {
           setApiStatus(`offline (${res.status})`);
         }
-  } catch {
+      } catch {
         setApiStatus('offline');
       }
     })();
-  }, []);
+  }, [servicesEnabled]);
 
-  const handleChange = e => {
+  // Memoizar handlers de formulario para evitar recreaciones
+  const handleChange = useCallback((e) => {
     setForm({ ...form, [e.target.name]: e.target.value });
-  };
+  }, [form]);
 
-  const handleSubmit = async e => {
+  const handleSubmit = useCallback(async (e) => {
     e.preventDefault();
     setMensaje('');
     try {
@@ -148,14 +623,14 @@ function App() {
     } catch {
       setMensaje('Error de conexión');
     }
-  };
+  }, [form, fetchGranos]);
 
-  const handleEdit = (id, cantidad) => {
+  const handleEdit = useCallback((id, cantidad) => {
     setEditId(id);
     setEditCantidad(cantidad);
-  };
+  }, []);
 
-  const handleUpdate = async id => {
+  const handleUpdate = useCallback(async (id) => {
     setMensaje('');
     try {
       const res = await fetch(`${API_URL}/actualizar`, {
@@ -174,13 +649,13 @@ function App() {
     } catch {
       setMensaje('Error de conexión');
     }
-  };
+  }, [editCantidad, fetchGranos]);
 
-  const handleLoginChange = e => {
+  const handleLoginChange = useCallback((e) => {
     setLogin({ ...login, [e.target.name]: e.target.value });
-  };
+  }, [login]);
 
-  const handleLogin = async e => {
+  const handleLogin = useCallback(async (e) => {
     e.preventDefault();
     setLoginMsg('');
     try {
@@ -193,6 +668,13 @@ function App() {
       if (res.ok) {
         setUser(data.usuario);
         setToken(data.token || '');
+        // Guardar token en localStorage para persistencia
+        if (data.token) {
+          localStorage.setItem('token', data.token);
+          console.log('✅ Sesión guardada');
+        }
+        // Ir directo al panel principal (sin mostrar landing antigua)
+        setPanel('observabilidad');
         setLogin({ email: '', password: '' });
       } else {
         setLoginMsg(data.error || 'Login incorrecto');
@@ -200,9 +682,9 @@ function App() {
     } catch {
       setLoginMsg('Error de conexión');
     }
-  };
+  }, [login]);
 
-  const handleChangePassword = async e => {
+  const handleChangePassword = useCallback(async (e) => {
     e.preventDefault();
     setChangeMsg('');
     if (!changeData.nuevaPassword || changeData.nuevaPassword !== changeData.confirm) {
@@ -227,106 +709,10 @@ function App() {
     } catch {
       setChangeMsg('Error de conexión');
     }
-  };
+  }, [changeData]);
 
-  const [panel, setPanel] = useState('inicio');
-  // const permiteConfig = user && ['admin','it','rrhh'].includes(user.rol); // (No usado tras rediseño de landing)
-  const USERS_URL = '/api/usuario';
-  const [users, setUsers] = useState([]);
-  const [newUser, setNewUser] = useState({ nombre:'', email:'', password:'', rol:'operador' });
-  const cargarUsuarios = async ()=>{
-    try { const r = await fetch(USERS_URL, { headers: token ? { Authorization: `Bearer ${token}` } : {} }); if (r.ok) setUsers(await r.json()); }
-    catch (e) { console.warn('No se pudo cargar usuarios', e); }
-  };
-  // Producción state
-  const [ops, setOps] = useState([]);
-  const [newOP, setNewOP] = useState({ producto: '', receta: [{ tipo: 'arabica', cantidad: 1 }] });
-  const [stageSel, setStageSel] = useState('Tostado');
-  const [modal, setModal] = useState({ open:false, opId:null, receta:[] });
-  const loadOPs = async () => {
-    try {
-      const r = await fetch(PROD_URL);
-      if (r.ok) {
-        const data = await r.json();
-        setOps(Array.isArray(data) ? data : (data.data || []));
-      }
-    }
-    catch (e) { console.warn('No se pudo cargar OPs', e); }
-  };
-  
-  // Compras state
-  const COMPRAS_URL = '/api/compras';
-  const [proveedores, setProveedores] = useState([]);
-  const [ordenes, setOrdenes] = useState([]);
-  const [recepciones, setRecepciones] = useState([]);
-  const [newProveedor, setNewProveedor] = useState({ nombre: '', ruc: '', contacto: '', telefono: '', direccion: '', email: '' });
-  const [newOC, setNewOC] = useState({ proveedor: '', items: [{ tipo: 'arabica', cantidad: 100, precioUnitario: 3.0 }] });
-  const [newRecepcion, setNewRecepcion] = useState({ ordenCompra: '', lotes: [{ tipo: 'arabica', cantidad: 50, costoUnitario: 3.0, lote: '', fechaCosecha: '', humedad: '' }], observaciones: '' });
-  const [comprasMsg, setComprasMsg] = useState('');
-
-  const loadProveedores = async () => {
-    try { 
-      const r = await fetch(`${COMPRAS_URL}/proveedores`, { headers: token ? { Authorization: `Bearer ${token}` } : {} }); 
-      if (r.ok) setProveedores(await r.json()); 
-    } catch (e) { console.warn('No se pudo cargar proveedores', e); }
-  };
-
-  const loadOrdenes = async () => {
-    try { 
-      const r = await fetch(`${COMPRAS_URL}/ordenes`, { headers: token ? { Authorization: `Bearer ${token}` } : {} }); 
-      if (r.ok) setOrdenes(await r.json()); 
-    } catch (e) { console.warn('No se pudo cargar órdenes', e); }
-  };
-
-  const loadRecepciones = async () => {
-    try { 
-      const r = await fetch(`${COMPRAS_URL}/recepciones`, { headers: token ? { Authorization: `Bearer ${token}` } : {} }); 
-      if (r.ok) setRecepciones(await r.json()); 
-    } catch (e) { console.warn('No se pudo cargar recepciones', e); }
-  };
-  
-  const handleLogout = () => {
-    setUser(null);
-    setPanel('inicio');
-  };
-
-  // Ventas state
-  const [clientes, setClientes] = useState([]);
-  const [productosPT, setProductosPT] = useState([]);
-  const [pedidos, setPedidos] = useState([]);
-  const [facturas, setFacturas] = useState([]);
-  const [ventasMsg, setVentasMsg] = useState('');
-  const [newCliente, setNewCliente] = useState({ nombre:'', ruc:'', email:'', telefono:'', direccion:'' });
-  const [newProductoPT, setNewProductoPT] = useState({ sku:'', nombre:'', unidad:'kg' });
-  const [newPedido, setNewPedido] = useState({ cliente:'', items:[{ producto:'', cantidad:1, precio:0 }] });
-
-  const loadClientes = async () => {
-    try { const r = await fetch(`${VENTAS_URL}/clientes`, { headers: token? { Authorization: `Bearer ${token}` } : {} }); if (r.ok) setClientes(await r.json()); }
-    catch(e){ console.warn('No se pudo cargar clientes', e); }
-  };
-  const loadProductosPT = async () => {
-    try { const r = await fetch(`${VENTAS_URL}/productos`, { headers: token? { Authorization: `Bearer ${token}` } : {} }); if (r.ok) setProductosPT(await r.json()); }
-    catch(e){ console.warn('No se pudo cargar productos PT', e); }
-  };
-  const loadPedidos = async () => {
-    try { const r = await fetch(`${VENTAS_URL}/pedidos`, { headers: token? { Authorization: `Bearer ${token}` } : {} }); if (r.ok) setPedidos(await r.json()); }
-    catch(e){ console.warn('No se pudo cargar pedidos', e); }
-  };
-  const loadFacturas = async () => {
-    try { const r = await fetch(`${VENTAS_URL}/facturas`, { headers: token? { Authorization: `Bearer ${token}` } : {} }); if (r.ok) setFacturas(await r.json()); }
-    catch(e){ console.warn('No se pudo cargar facturas', e); }
-  };
-
-  // Calidad state (QC de recepciones)
-  // Reportes / Dashboard
-  const [kpis, setKpis] = useState({ ventasHoy:0, facturasHoy:0, pedidosConfirmados:0, pedidosDespachados:0, stockPT:0, opsEnProceso:0, lotesBloqueados:0 });
-  const [ventasDiarias, setVentasDiarias] = useState([]);
-  const [mermaAgg, setMermaAgg] = useState({ merma:0, cerradas:0 });
-  const loadKpis = async()=>{ try{ const r = await fetch(`${REPORTES_URL}/kpis`, { headers: token? { Authorization:`Bearer ${token}` } : {} }); if(r.ok) setKpis(await r.json()); } catch { /*noop*/ } };
-  const loadVentasDiarias = async(days=7)=>{ try{ const r = await fetch(`${REPORTES_URL}/ventas-diarias?days=${days}`, { headers: token? { Authorization:`Bearer ${token}` } : {} }); if(r.ok) setVentasDiarias(await r.json()); } catch { /*noop*/ } };
-  const loadMerma = async(days=30)=>{ try{ const r = await fetch(`${REPORTES_URL}/merma?days=${days}`, { headers: token? { Authorization:`Bearer ${token}` } : {} }); if(r.ok) setMermaAgg(await r.json()); } catch { /*noop*/ } };
-  // Simple bar chart (inline SVG) for numeric series
-  const BarChart = ({ data, width=420, height=120, accessor=(d)=>d }) => {
+  // Simple bar chart (inline SVG) for numeric series - Memoizado
+  const BarChart = useCallback(({ data, width=420, height=120, accessor=(d)=>d }) => {
     const vals = data.map(accessor);
     const max = Math.max(1, ...vals);
     const barW = Math.max(4, Math.floor(width / Math.max(1, data.length)) - 4);
@@ -345,49 +731,68 @@ function App() {
         {bars}
       </svg>
     );
-  };
+  }, []);
 
-  // Utilidades de moneda (GTQ/USD)
-  const currencySymbol = (m) => (m === 'USD' ? '$' : 'Q');
-  const fmtMoney = (v, m = 'GTQ') => `${currencySymbol(m)} ${Number(v || 0).toFixed(2)}`;
+  // Utilidades de moneda (GTQ/USD) - Memoizadas
+  const currencySymbol = useCallback((m) => (m === 'USD' ? '$' : 'Q'), []);
+  const fmtMoney = useCallback((v, m = 'GTQ') => `${currencySymbol(m)} ${Number(v || 0).toFixed(2)}`, [currencySymbol]);
 
-  // Finanzas state and actions
-  const FINANZAS_URL = '/api/finanzas';
-    const [tc, setTc] = useState(null);
-  const [cxp, setCxp] = useState([]);
-  const [cxc, setCxc] = useState([]);
-  const [cxpForm, setCxpForm] = useState({ proveedorId:'', ordenCompraId:'', fechaVencimiento:'', moneda:'GTQ', monto:'' });
-  const [cxcForm, setCxcForm] = useState({ clienteId:'', facturaId:'', fechaVencimiento:'', moneda:'GTQ', monto:'' });
-  const [aging, setAging] = useState(null);
-  const [facturaProvModal, setFacturaProvModal] = useState({ open:false, cxpId:'', numero:'', fecha:'', adjuntoUrl:'', observaciones:'', tcUsado:'', tcFuente:'', tcFecha:'', archivo:null, uploading:false, progress:0, errorMsg:'' });
+  // Memoizar handlers de finanzas
+  const crearCxp = useCallback(async (e)=>{
+    e.preventDefault(); 
+    try{ 
+      const r = await fetch(`${FINANZAS_URL}/cxp`, { 
+        method:'POST', 
+        headers:{ 'Content-Type':'application/json', ...(token? { Authorization:`Bearer ${token}` }: {}) }, 
+        body: JSON.stringify({ ...cxpForm, monto: Number(cxpForm.monto) }) 
+      }); 
+      if(r.ok){ 
+        setCxpForm({ proveedorId:'', ordenCompraId:'', fechaVencimiento:'', moneda:'GTQ', monto:'' }); 
+        await loadFinanzas(); 
+      } 
+    } catch { /*noop*/ } 
+  }, [cxpForm, token, loadFinanzas]);
 
-  const loadFinanzas = async ()=>{
-    try { const h = token? { Authorization:`Bearer ${token}`, 'Content-Type':'application/json' } : { 'Content-Type':'application/json' };
-      const [r1, r2] = await Promise.all([
-        fetch(`${FINANZAS_URL}/cxp`, { headers: h }),
-        fetch(`${FINANZAS_URL}/cxc`, { headers: h })
-      ]);
-      if(r1.ok) setCxp(await r1.json());
-      if(r2.ok) setCxc(await r2.json());
-    } catch { /*noop*/ }
-  };
+  const crearCxc = useCallback(async (e)=>{
+    e.preventDefault(); 
+    try{ 
+      const r = await fetch(`${FINANZAS_URL}/cxc`, { 
+        method:'POST', 
+        headers:{ 'Content-Type':'application/json', ...(token? { Authorization:`Bearer ${token}` }: {}) }, 
+        body: JSON.stringify({ ...cxcForm, monto: Number(cxcForm.monto) }) 
+      }); 
+      if(r.ok){ 
+        setCxcForm({ clienteId:'', facturaId:'', fechaVencimiento:'', moneda:'GTQ', monto:'' }); 
+        await loadFinanzas(); 
+      } 
+    } catch { /*noop*/ } 
+  }, [cxcForm, token, loadFinanzas]);
 
-  const loadAging = async ()=>{
-    try { const r = await fetch(`${FINANZAS_URL}/aging`, { headers: token? { Authorization:`Bearer ${token}` } : {} }); if(r.ok) setAging(await r.json()); }
-    catch { /* noop */ }
-  };
+  const pagarCxp = useCallback(async (id)=>{
+    const monto = Number(prompt('Monto a pagar:','0')); 
+    if(!monto) return; 
+    try{ 
+      const r = await fetch(`${FINANZAS_URL}/cxp/${id}/pago`, { 
+        method:'POST', 
+        headers:{ 'Content-Type':'application/json', ...(token? { Authorization:`Bearer ${token}` }: {}) }, 
+        body: JSON.stringify({ monto }) 
+      }); 
+      if(r.ok) await loadFinanzas(); 
+    } catch { /*noop*/ } 
+  }, [token, loadFinanzas]);
 
-  const loadTC = async (force=false)=>{
-    try { const url = `${FINANZAS_URL}/tc${force? '?force=1':''}`; const r = await fetch(url, { headers: token? { Authorization:`Bearer ${token}` } : {} }); if (r.ok) setTc(await r.json()); }
-    catch { /* noop */ }
-  };
+  const anularCxp = useCallback(async (id)=>{
+    if(!confirm('¿Anular esta CxP?')) return; 
+    try{ 
+      const r = await fetch(`${FINANZAS_URL}/cxp/${id}/anular`, { 
+        method:'POST', 
+        headers: token? { Authorization:`Bearer ${token}` } : {} 
+      }); 
+      if(r.ok) await loadFinanzas(); 
+    } catch { /*noop*/ } 
+  }, [token, loadFinanzas]);
 
-  const crearCxp = async (e)=>{ e.preventDefault(); try{ const r = await fetch(`${FINANZAS_URL}/cxp`, { method:'POST', headers:{ 'Content-Type':'application/json', ...(token? { Authorization:`Bearer ${token}` }: {}) }, body: JSON.stringify({ ...cxpForm, monto: Number(cxpForm.monto) }) }); if(r.ok){ setCxpForm({ proveedorId:'', ordenCompraId:'', fechaVencimiento:'', moneda:'GTQ', monto:'' }); await loadFinanzas(); } } catch { /*noop*/ } };
-  const crearCxc = async (e)=>{ e.preventDefault(); try{ const r = await fetch(`${FINANZAS_URL}/cxc`, { method:'POST', headers:{ 'Content-Type':'application/json', ...(token? { Authorization:`Bearer ${token}` }: {}) }, body: JSON.stringify({ ...cxcForm, monto: Number(cxcForm.monto) }) }); if(r.ok){ setCxcForm({ clienteId:'', facturaId:'', fechaVencimiento:'', moneda:'GTQ', monto:'' }); await loadFinanzas(); } } catch { /*noop*/ } };
-
-  const pagarCxp = async (id)=>{ const monto = Number(prompt('Monto a pagar:','0')); if(!monto) return; try{ const r = await fetch(`${FINANZAS_URL}/cxp/${id}/pago`, { method:'POST', headers:{ 'Content-Type':'application/json', ...(token? { Authorization:`Bearer ${token}` }: {}) }, body: JSON.stringify({ monto }) }); if(r.ok) await loadFinanzas(); } catch { /*noop*/ } };
-  const anularCxp = async (id)=>{ if(!confirm('¿Anular esta CxP?')) return; try{ const r = await fetch(`${FINANZAS_URL}/cxp/${id}/anular`, { method:'POST', headers: token? { Authorization:`Bearer ${token}` } : {} }); if(r.ok) await loadFinanzas(); } catch { /*noop*/ } };
-  const guardarFacturaProv = async ()=>{
+  const guardarFacturaProv = useCallback(async ()=>{
     try{
       // Pre-chequeo anti-duplicados: mismo proveedor + mismo número
       const numeroTrim = (facturaProvModal.numero || '').trim();
@@ -414,11 +819,19 @@ function App() {
         observaciones: facturaProvModal.observaciones || undefined,
         tcUsado: facturaProvModal.tcUsado ? Number(facturaProvModal.tcUsado) : undefined
       };
-      const r = await fetch(`${FINANZAS_URL}/cxp/${facturaProvModal.cxpId}/factura`, { method:'POST', headers:{ 'Content-Type':'application/json', ...(token? { Authorization:`Bearer ${token}` } : {}) }, body: JSON.stringify(payload) });
-      if(r.ok){ setFacturaProvModal({ open:false, cxpId:'', numero:'', fecha:'', adjuntoUrl:'', observaciones:'', tcUsado:'', archivo:null, uploading:false }); await loadFinanzas(); }
+      const r = await fetch(`${FINANZAS_URL}/cxp/${facturaProvModal.cxpId}/factura`, { 
+        method:'POST', 
+        headers:{ 'Content-Type':'application/json', ...(token? { Authorization:`Bearer ${token}` } : {}) }, 
+        body: JSON.stringify(payload) 
+      });
+      if(r.ok){ 
+        setFacturaProvModal({ open:false, cxpId:'', numero:'', fecha:'', adjuntoUrl:'', observaciones:'', tcUsado:'', archivo:null, uploading:false }); 
+        await loadFinanzas(); 
+      }
     } catch { /* noop */ }
-  };
-  const subirAdjuntoFacturaProv = async ()=>{
+  }, [facturaProvModal, cxp, loadFinanzas, token]);
+
+  const subirAdjuntoFacturaProv = useCallback(async ()=>{
     try{
       const file = facturaProvModal.archivo;
       if(!file) return;
@@ -464,261 +877,494 @@ function App() {
         };
         xhr.send(fd);
       });
-    } catch { setFacturaProvModal(prev=> ({ ...prev, uploading:false, errorMsg:'Error inesperado al subir.' })); }
-  };
-  const cobrarCxc = async (id)=>{ const monto = Number(prompt('Monto a cobrar:','0')); if(!monto) return; try{ const r = await fetch(`${FINANZAS_URL}/cxc/${id}/cobro`, { method:'POST', headers:{ 'Content-Type':'application/json', ...(token? { Authorization:`Bearer ${token}` }: {}) }, body: JSON.stringify({ monto }) }); if(r.ok) await loadFinanzas(); } catch { /*noop*/ } };
-  const anularCxc = async (id)=>{ if(!confirm('¿Anular esta CxC?')) return; try{ const r = await fetch(`${FINANZAS_URL}/cxc/${id}/anular`, { method:'POST', headers: token? { Authorization:`Bearer ${token}` } : {} }); if(r.ok) await loadFinanzas(); } catch { /*noop*/ } };
-  const [qcRecepciones, setQcRecepciones] = useState([]);
-  const [newQCRecep, setNewQCRecep] = useState({ recepcion:'', lote:'', mediciones:{ humedad:'', acidez:'', defectos:'' }, resultado:'aprobado', notas:'' });
-  const loadQCRecepciones = async () => {
-    try { const r = await fetch(`${CALIDAD_URL}/recepciones`, { headers: token? { Authorization: `Bearer ${token}` } : {} }); if (r.ok) setQcRecepciones(await r.json()); }
-    catch(e){ console.warn('No se pudo cargar QC recepciones', e); }
-  };
+    } catch { 
+      setFacturaProvModal(prev=> ({ ...prev, uploading:false, errorMsg:'Error inesperado al subir.' })); 
+    }
+  }, [facturaProvModal, token]);
 
-  // Calidad state (QC de proceso)
-  const [qcProceso, setQcProceso] = useState([]);
-  const [newQCProc, setNewQCProc] = useState({ op:'', etapa:'Tostado', checklist:[{ nombre:'Parámetros OK', ok:true }], resultado:'aprobado', notas:'' });
-  const loadQCProceso = async () => {
-    try { const r = await fetch(`${CALIDAD_URL}/proceso`, { headers: token? { Authorization: `Bearer ${token}` } : {} }); if (r.ok) setQcProceso(await r.json()); }
-    catch(e){ console.warn('No se pudo cargar QC proceso', e); }
-  };
+  const cobrarCxc = useCallback(async (id)=>{
+    const monto = Number(prompt('Monto a cobrar:','0')); 
+    if(!monto) return; 
+    try{ 
+      const r = await fetch(`${FINANZAS_URL}/cxc/${id}/cobro`, { 
+        method:'POST', 
+        headers:{ 'Content-Type':'application/json', ...(token? { Authorization:`Bearer ${token}` }: {}) }, 
+        body: JSON.stringify({ monto }) 
+      }); 
+      if(r.ok) await loadFinanzas(); 
+    } catch { /*noop*/ } 
+  }, [token, loadFinanzas]);
 
-  // Calidad state (No Conformidades)
-  const [ncs, setNCs] = useState([]);
-  const [newNC, setNewNC] = useState({ recurso:'lote', referencia:'', motivo:'', acciones:'' });
-  const loadNCs = async () => {
-    try { const r = await fetch(`${CALIDAD_URL}/nc`, { headers: token? { Authorization: `Bearer ${token}` } : {} }); if (r.ok) setNCs(await r.json()); }
-    catch(e){ console.warn('No se pudo cargar No Conformidades', e); }
-  };
+  const anularCxc = useCallback(async (id)=>{
+    if(!confirm('¿Anular esta CxC?')) return; 
+    try{ 
+      const r = await fetch(`${FINANZAS_URL}/cxc/${id}/anular`, { 
+        method:'POST', 
+        headers: token? { Authorization:`Bearer ${token}` } : {} 
+      }); 
+      if(r.ok) await loadFinanzas(); 
+    } catch { /*noop*/ } 
+  }, [token, loadFinanzas]);
+
+  // Pantalla de carga mientras verificamos autenticación
+  if (isCheckingAuth) {
+    return (
+      <div style={{
+        minHeight: '100vh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+      }}>
+        <div style={{ textAlign: 'center', color: 'white' }}>
+          <div style={{ fontSize: '4rem', marginBottom: '1rem' }}>☕</div>
+          <div style={{ fontSize: '1.2rem', fontWeight: '500' }}>Verificando sesión...</div>
+        </div>
+      </div>
+    );
+  }
 
   if (!user) {
     return (
-      <div className="form-container">
-        <div style={{ textAlign: 'center', marginBottom: 16, fontSize: '0.85rem', opacity: 0.7 }}>
-          Sistema activo
-        </div>
-        
-        {apiStatus && (
-          <div style={{ 
-            textAlign: 'center', 
-            marginBottom: 16, 
-            fontSize: '0.85rem', 
-            color: apiStatus.startsWith('online') ? '#27ae60' : '#e74c3c',
-            padding: '8px',
-            background: apiStatus.startsWith('online') ? '#efffef' : '#fee',
-            borderRadius: '8px'
-          }}>
-            Backend: {apiStatus}
+      <div style={{
+        minHeight: '100vh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        padding: '20px',
+        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+      }}>
+        <div style={{
+          width: '100%',
+          maxWidth: '420px',
+          animation: 'fadeInUp 0.6s ease-out'
+        }}>
+          {/* Logo y Título */}
+          <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
+            <div style={{
+              fontSize: '4rem',
+              marginBottom: '0.5rem',
+              filter: 'drop-shadow(0 4px 12px rgba(0,0,0,0.15))'
+            }}>☕</div>
+            <h1 style={{
+              fontSize: '2rem',
+              fontWeight: '700',
+              color: 'white',
+              margin: '0 0 0.5rem 0',
+              textShadow: '0 2px 10px rgba(0,0,0,0.2)'
+            }}>
+              Café Gourmet
+            </h1>
+            <p style={{
+              fontSize: '0.95rem',
+              color: 'rgba(255,255,255,0.9)',
+              margin: 0,
+              fontWeight: '300'
+            }}>
+              Sistema de Gestión Empresarial
+            </p>
           </div>
-        )}
 
-        <div className="panel" style={{ marginBottom: 16 }}>
-          <div className="panel__title">☕ Café Gourmet</div>
-          <p style={{ textAlign: 'center', opacity: 0.8, marginBottom: 0 }}>
-            Sistema de Gestión Empresarial
-          </p>
+          {/* Card principal */}
+          <div style={{
+            background: 'white',
+            borderRadius: '16px',
+            padding: '2.5rem 2rem',
+            boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
+            backdropFilter: 'blur(10px)'
+          }}>
+            {authView === 'login' && (
+              <>
+                <h2 style={{
+                  fontSize: '1.5rem',
+                  fontWeight: '600',
+                  color: '#2d3748',
+                  margin: '0 0 1.5rem 0',
+                  textAlign: 'center'
+                }}>
+                  Iniciar sesión
+                </h2>
+                
+                <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
+                  <div>
+                    <label style={{
+                      display: 'block',
+                      fontSize: '0.875rem',
+                      fontWeight: '500',
+                      color: '#4a5568',
+                      marginBottom: '0.5rem'
+                    }}>
+                      Correo electrónico
+                    </label>
+                    <input 
+                      type="text" 
+                      name="email" 
+                      value={login.email} 
+                      onChange={handleLoginChange} 
+                      required 
+                      autoComplete="username"
+                      placeholder="usuario@cafe.com"
+                      style={{
+                        width: '100%',
+                        padding: '0.75rem 1rem',
+                        fontSize: '1rem',
+                        border: '2px solid #e2e8f0',
+                        borderRadius: '8px',
+                        outline: 'none',
+                        transition: 'all 0.2s',
+                        boxSizing: 'border-box'
+                      }}
+                      onFocus={(e) => e.target.style.borderColor = '#667eea'}
+                      onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{
+                      display: 'block',
+                      fontSize: '0.875rem',
+                      fontWeight: '500',
+                      color: '#4a5568',
+                      marginBottom: '0.5rem'
+                    }}>
+                      Contraseña
+                    </label>
+                    <input 
+                      type="password" 
+                      name="password" 
+                      value={login.password} 
+                      onChange={handleLoginChange} 
+                      required 
+                      autoComplete="current-password"
+                      placeholder="••••••••"
+                      style={{
+                        width: '100%',
+                        padding: '0.75rem 1rem',
+                        fontSize: '1rem',
+                        border: '2px solid #e2e8f0',
+                        borderRadius: '8px',
+                        outline: 'none',
+                        transition: 'all 0.2s',
+                        boxSizing: 'border-box'
+                      }}
+                      onFocus={(e) => e.target.style.borderColor = '#667eea'}
+                      onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                    />
+                  </div>
+
+                  <button 
+                    type="submit" 
+                    style={{
+                      width: '100%',
+                      padding: '0.875rem',
+                      fontSize: '1rem',
+                      fontWeight: '600',
+                      color: 'white',
+                      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                      border: 'none',
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      transition: 'all 0.3s',
+                      boxShadow: '0 4px 15px rgba(102, 126, 234, 0.4)',
+                      marginTop: '0.5rem'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.target.style.transform = 'translateY(-2px)';
+                      e.target.style.boxShadow = '0 6px 20px rgba(102, 126, 234, 0.5)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.target.style.transform = 'translateY(0)';
+                      e.target.style.boxShadow = '0 4px 15px rgba(102, 126, 234, 0.4)';
+                    }}
+                  >
+                    Entrar
+                  </button>
+
+                  <button 
+                    type="button" 
+                    onClick={() => setAuthView('change')}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: '#667eea',
+                      fontSize: '0.875rem',
+                      cursor: 'pointer',
+                      padding: '0.5rem',
+                      fontWeight: '500',
+                      textDecoration: 'none',
+                      transition: 'color 0.2s'
+                    }}
+                    onMouseEnter={(e) => e.target.style.color = '#764ba2'}
+                    onMouseLeave={(e) => e.target.style.color = '#667eea'}
+                  >
+                    ¿Olvidaste tu contraseña?
+                  </button>
+                </form>
+
+                {loginMsg && (
+                  <div style={{
+                    marginTop: '1rem',
+                    padding: '0.875rem',
+                    background: '#fee',
+                    color: '#e74c3c',
+                    borderRadius: '8px',
+                    fontSize: '0.875rem',
+                    textAlign: 'center',
+                    border: '1px solid #fdd'
+                  }}>
+                    {loginMsg}
+                  </div>
+                )}
+              </>
+            )}
+
+            {authView === 'change' && (
+              <>
+                <h2 style={{
+                  fontSize: '1.5rem',
+                  fontWeight: '600',
+                  color: '#2d3748',
+                  margin: '0 0 1.5rem 0',
+                  textAlign: 'center'
+                }}>
+                  Recuperar contraseña
+                </h2>
+                
+                <form onSubmit={handleChangePassword} style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
+                  <div>
+                    <label style={{
+                      display: 'block',
+                      fontSize: '0.875rem',
+                      fontWeight: '500',
+                      color: '#4a5568',
+                      marginBottom: '0.5rem'
+                    }}>
+                      Email o usuario
+                    </label>
+                    <input 
+                      type="text" 
+                      value={changeData.email} 
+                      onChange={e => setChangeData({ ...changeData, email: e.target.value })} 
+                      required
+                      placeholder="usuario@cafe.com"
+                      style={{
+                        width: '100%',
+                        padding: '0.75rem 1rem',
+                        fontSize: '1rem',
+                        border: '2px solid #e2e8f0',
+                        borderRadius: '8px',
+                        outline: 'none',
+                        transition: 'all 0.2s',
+                        boxSizing: 'border-box'
+                      }}
+                      onFocus={(e) => e.target.style.borderColor = '#667eea'}
+                      onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{
+                      display: 'block',
+                      fontSize: '0.875rem',
+                      fontWeight: '500',
+                      color: '#4a5568',
+                      marginBottom: '0.5rem'
+                    }}>
+                      Nueva contraseña
+                    </label>
+                    <input 
+                      type="password" 
+                      value={changeData.nuevaPassword} 
+                      onChange={e => setChangeData({ ...changeData, nuevaPassword: e.target.value })} 
+                      required
+                      placeholder="••••••••"
+                      style={{
+                        width: '100%',
+                        padding: '0.75rem 1rem',
+                        fontSize: '1rem',
+                        border: '2px solid #e2e8f0',
+                        borderRadius: '8px',
+                        outline: 'none',
+                        transition: 'all 0.2s',
+                        boxSizing: 'border-box'
+                      }}
+                      onFocus={(e) => e.target.style.borderColor = '#667eea'}
+                      onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{
+                      display: 'block',
+                      fontSize: '0.875rem',
+                      fontWeight: '500',
+                      color: '#4a5568',
+                      marginBottom: '0.5rem'
+                    }}>
+                      Confirmar contraseña
+                    </label>
+                    <input 
+                      type="password" 
+                      value={changeData.confirm} 
+                      onChange={e => setChangeData({ ...changeData, confirm: e.target.value })} 
+                      required
+                      placeholder="••••••••"
+                      style={{
+                        width: '100%',
+                        padding: '0.75rem 1rem',
+                        fontSize: '1rem',
+                        border: '2px solid #e2e8f0',
+                        borderRadius: '8px',
+                        outline: 'none',
+                        transition: 'all 0.2s',
+                        boxSizing: 'border-box'
+                      }}
+                      onFocus={(e) => e.target.style.borderColor = '#667eea'}
+                      onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                    />
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.5rem' }}>
+                    <button 
+                      type="submit" 
+                      style={{
+                        flex: 1,
+                        padding: '0.875rem',
+                        fontSize: '1rem',
+                        fontWeight: '600',
+                        color: 'white',
+                        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                        border: 'none',
+                        borderRadius: '8px',
+                        cursor: 'pointer',
+                        transition: 'all 0.3s',
+                        boxShadow: '0 4px 15px rgba(102, 126, 234, 0.4)'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.target.style.transform = 'translateY(-2px)';
+                        e.target.style.boxShadow = '0 6px 20px rgba(102, 126, 234, 0.5)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.target.style.transform = 'translateY(0)';
+                        e.target.style.boxShadow = '0 4px 15px rgba(102, 126, 234, 0.4)';
+                      }}
+                    >
+                      Actualizar
+                    </button>
+                    <button 
+                      type="button" 
+                      onClick={() => setAuthView('login')}
+                      style={{
+                        flex: 1,
+                        padding: '0.875rem',
+                        fontSize: '1rem',
+                        fontWeight: '600',
+                        color: '#667eea',
+                        background: 'white',
+                        border: '2px solid #667eea',
+                        borderRadius: '8px',
+                        cursor: 'pointer',
+                        transition: 'all 0.3s'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.target.style.background = '#f7fafc';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.target.style.background = 'white';
+                      }}
+                    >
+                      Volver
+                    </button>
+                  </div>
+                </form>
+
+                {changeMsg && (
+                  <div style={{
+                    marginTop: '1rem',
+                    padding: '0.875rem',
+                    background: changeMsg.includes('actualizada') ? '#efffef' : '#fee',
+                    color: changeMsg.includes('actualizada') ? '#27ae60' : '#e74c3c',
+                    borderRadius: '8px',
+                    fontSize: '0.875rem',
+                    textAlign: 'center',
+                    border: changeMsg.includes('actualizada') ? '1px solid #dfd' : '1px solid #fdd'
+                  }}>
+                    {changeMsg}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
+          {/* Footer */}
+          <div style={{
+            textAlign: 'center',
+            marginTop: '2rem',
+            color: 'rgba(255,255,255,0.8)',
+            fontSize: '0.875rem'
+          }}>
+            {apiStatus && (
+              <div style={{ marginBottom: '0.5rem' }}>
+                Estado: <strong>{apiStatus}</strong>
+              </div>
+            )}
+            © {new Date().getFullYear()} Café Gourmet
+          </div>
         </div>
-        
-        {authView === 'login' && (
-          <>
-            <form onSubmit={handleLogin} className="panel" style={{ marginBottom: 16 }}>
-              <div className="panel__title">Iniciar sesión</div>
-              <label>Email:</label>
-              <input 
-                type="text" 
-                name="email" 
-                value={login.email} 
-                onChange={handleLoginChange} 
-                required 
-                autoComplete="username"
-                placeholder="usuario@cafe.com"
-              />
-              <label>Contraseña:</label>
-              <input 
-                type="password" 
-                name="password" 
-                value={login.password} 
-                onChange={handleLoginChange} 
-                required 
-                autoComplete="current-password"
-                placeholder="••••••••"
-              />
-              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem', alignItems: 'center', justifyContent: 'space-between' }}>
-                <button type="submit" className="btn btn--primary" style={{ flex: 1 }}>
-                  Entrar
-                </button>
-                <button 
-                  type="button" 
-                  className="btn btn--link" 
-                  onClick={() => setAuthView('change')}
-                  style={{ fontSize: '0.85rem' }}
-                >
-                  ¿Olvidaste tu contraseña?
-                </button>
-              </div>
-            </form>
-            {loginMsg && (
-              <div className="panel" style={{ 
-                color: '#e74c3c', 
-                background: '#fee',
-                textAlign: 'center',
-                padding: '12px',
-                fontSize: '0.9rem'
-              }}>
-                {loginMsg}
-              </div>
-            )}
-          </>
-        )}
-        
-        {authView === 'change' && (
-          <>
-            <form onSubmit={handleChangePassword} className="panel" style={{ marginBottom: 16 }}>
-              <div className="panel__title">Cambiar contraseña</div>
-              <label>Email o usuario:</label>
-              <input 
-                type="text" 
-                value={changeData.email} 
-                onChange={e => setChangeData({ ...changeData, email: e.target.value })} 
-                required
-                placeholder="usuario@cafe.com"
-              />
-              <label>Nueva contraseña:</label>
-              <input 
-                type="password" 
-                value={changeData.nuevaPassword} 
-                onChange={e => setChangeData({ ...changeData, nuevaPassword: e.target.value })} 
-                required
-                placeholder="••••••••"
-              />
-              <label>Confirmar contraseña:</label>
-              <input 
-                type="password" 
-                value={changeData.confirm} 
-                onChange={e => setChangeData({ ...changeData, confirm: e.target.value })} 
-                required
-                placeholder="••••••••"
-              />
-              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
-                <button type="submit" className="btn btn--primary" style={{ flex: 1 }}>
-                  Actualizar contraseña
-                </button>
-                <button 
-                  type="button" 
-                  className="btn btn--secondary" 
-                  onClick={() => setAuthView('login')}
-                  style={{ flex: 1 }}
-                >
-                  Volver
-                </button>
-              </div>
-            </form>
-            {changeMsg && (
-              <div className="panel" style={{ 
-                color: changeMsg.includes('actualizada') ? '#27ae60' : '#e74c3c',
-                background: changeMsg.includes('actualizada') ? '#efffef' : '#fee',
-                textAlign: 'center',
-                padding: '12px',
-                fontSize: '0.9rem'
-              }}>
-                {changeMsg}
-              </div>
-            )}
-          </>
-        )}
+
+        <style>{`
+          @keyframes fadeInUp {
+            from {
+              opacity: 0;
+              transform: translateY(30px);
+            }
+            to {
+              opacity: 1;
+              transform: translateY(0);
+            }
+          }
+        `}</style>
       </div>
     );
   }
 
   if (panel === 'inicio') {
-    const openAndLoad = (key) => {
-      if (key === 'inventario') setPanel('inventario');
-      if (key === 'produccion') { setPanel('produccion'); loadOPs(); }
-      if (key === 'compras') { setPanel('compras'); loadProveedores(); loadOrdenes(); loadRecepciones(); }
-      if (key === 'ventas') { setPanel('ventas'); loadClientes(); loadProductosPT(); loadPedidos(); loadFacturas(); }
-      if (key === 'calidad') { setPanel('calidad'); loadRecepciones(); loadQCRecepciones(); loadQCProceso(); loadNCs(); loadOPs(); }
-      if (key === 'reportes') { setPanel('reportes'); loadKpis(); loadVentasDiarias(7); loadMerma(30); }
-      if (key === 'finanzas') { setPanel('finanzas'); loadFinanzas(); loadProveedores(); loadOrdenes(); loadClientes(); loadPedidos(); loadFacturas(); loadAging(); loadTC(false); }
-      if (key === 'config') { setPanel('config'); cargarUsuarios(); }
-    };
     return (
-      <>
-        <div className="user-badge">
-          <div style={{ fontSize:'.85rem', lineHeight:1.2 }}>
-            <strong>{user.nombre}</strong><br />
-            <span style={{ fontSize:'.65rem', opacity:.75 }}>{user.rol}</span>
+      <AppShell title="Preferencias de Interfaz">
+        <div className="panel">
+          <div className="panel__title">Apariencia</div>
+          <div style={{ display:'flex', gap:12, flexWrap:'wrap', alignItems:'center', marginBottom:12 }}>
+            <button className="btn btn--secondary" onClick={()=> setTheme(t=> t==='light'?'dark':'light')}>{theme==='light'?'🌙 Oscuro':'☀️ Claro'}</button>
+            <button className="btn btn--secondary" onClick={()=> setShowPalette(true)}>🎨 Seleccionar color</button>
+            <button className="btn btn--secondary" onClick={toggleFs}>{isFs? '⤢ Salir de Pantalla completa':'⤢ Pantalla completa'}</button>
+            <button className="btn btn--secondary" onClick={()=> setBorderStyle(r=> r==='rounded'?'flat':'rounded')}>{borderStyle==='rounded'?'🔲 Esquinas planas':'🟢 Esquinas redondas'}</button>
+            <button className="btn btn--secondary" onClick={()=> setNumberFmt(f=> f==='fin'? 'natural':'fin')}>{numberFmt==='fin'?'123 Financiero':'123 Natural'}</button>
           </div>
-          <button className="btn btn--sm btn--secondary" onClick={handleLogout}>Salir</button>
+          <div className="muted" style={{ fontSize:12 }}>Tus preferencias se guardan localmente en este navegador.</div>
         </div>
-        <button className="fullscreen-toggle" onClick={toggleFs} aria-label="Pantalla completa">{isFs ? '⤢' : '⤢'}</button>
-        <button className="palette-trigger" onClick={()=> setShowPalette(s=>!s)} aria-label="Temas y personalización">🎨</button>
-        {showPalette && (
-          <div className="palette-panel" onKeyDown={e=> e.stopPropagation()}>
-            <div style={{ fontWeight:600, marginBottom:6, fontSize:'.9rem' }}>Light Theme</div>
-            <div className="palette-row">
-              {LIGHT_THEMES.map(p => (
-                <div key={p.name} className={`swatch ${palette===p.name? 'selected':''}`} style={{ background:p.accent }} onClick={()=> { setTheme('light'); setPalette(p.name); }} title={p.label} />
-              ))}
+
+        <div className="panel">
+          <div className="panel__title">Logo</div>
+          <div style={{ display:'flex', gap:16, alignItems:'center', flexWrap:'wrap' }}>
+            {logoData ? <img src={logoData} alt="Logo" style={{ maxWidth:140, maxHeight:100, objectFit:'contain', border:'1px solid var(--surface-muted)', borderRadius:8, padding:6 }} /> : <div style={{ width:140, height:100, display:'flex', alignItems:'center', justifyContent:'center', fontSize:12, border:'1px dashed var(--surface-muted)', borderRadius:8 }}>Sin logo</div>}
+            <div>
+              <input type="file" accept="image/png,image/jpeg" onChange={e=> { const f=e.target.files?.[0]; if(!f) return; if(f.size>300*1024){ alert('Archivo demasiado grande (>300KB)'); return;} handleLogoUpload(f); }} />
+              <div className="muted" style={{ fontSize:12 }}>Se guarda localmente. PNG/JPG ≤ 300KB</div>
             </div>
-            <div style={{ fontWeight:600, margin:'4px 0 6px', fontSize:'.9rem' }}>Dark Theme</div>
-            <div className="palette-row">
-              {DARK_THEMES.map(p => (
-                <div key={p.name} className={`swatch ${palette===p.name? 'selected':''}`} style={{ background:p.accent }} onClick={()=> { setTheme('dark'); setPalette(p.name); }} title={p.label} />
-              ))}
-            </div>
-            <div style={{ display:'flex', gap:8, margin:'10px 0 8px', flexWrap:'wrap' }}>
-              <button className="btn btn--sm btn--secondary" onClick={()=> setTheme(t=> t==='light' ? 'dark':'light')}>{theme==='light'? '🌙 Oscuro':'☀️ Claro'}</button>
-              <button className="btn btn--sm btn--secondary" onClick={()=> setBorderStyle(r=> r==='rounded'?'flat':'rounded')}>{borderStyle==='rounded'?'🔲 Esquinas planas':'🟢 Esquinas redondas'}</button>
-              <button className="btn btn--sm btn--secondary" onClick={()=> setNumberFmt(f=> f==='fin'? 'natural':'fin')}>{numberFmt==='fin'?'123 Financiero':'123 Natural'}</button>
-            </div>
-            <div style={{ fontSize:'.65rem', opacity:.6 }}>Preferencias guardadas localmente · {palette}</div>
           </div>
-        )}
-        <div className="form-container" style={{ maxWidth:920, animation:'fadeIn .6s ease' }}>
-          <div style={{ textAlign:'center', marginBottom:'1.2rem' }}>
-            {logoData ? <img src={logoData} alt="Logo" style={{ maxWidth:140, maxHeight:120, objectFit:'contain', filter: theme==='dark'? 'drop-shadow(0 4px 8px rgba(0,0,0,.6))':'' }} /> : <h1 className="brand-logo">Cafe<span style={{ fontWeight:300 }}>Gourmet</span></h1>}
-            <h2 style={{ margin:'0.4rem 0 .2rem', fontSize:'1.9rem' }}>Bienvenido a <span style={{ color:'var(--accent)' }}>Cafe Gourmet</span>, {user.nombre.split(' ')[0]} ☕</h2>
-            <div className="tagline">El verdadero sabor del café</div>
-          </div>
-          <div className="landing-grid">
-            {modules.map(m => (
-              <div key={m.key} tabIndex={0} className="landing-card" onClick={()=> openAndLoad(m.key)} onKeyDown={e=> { if(e.key==='Enter') openAndLoad(m.key); }}>
-                <div style={{ fontSize:'1.8rem' }}>{m.icon}</div>
-                <h4>{m.label}</h4>
-                {m.key==='reportes' && <span className="ribbon">KPIs</span>}
-              </div>
-            ))}
-          </div>
-          <div style={{ marginTop:'2rem', textAlign:'center', fontSize:'.75rem', opacity:.55 }}>© {new Date().getFullYear()} Cafe Gourmet – Interfaz adaptativa</div>
         </div>
-        {searchOpen && (
-          <div className="search-overlay" onClick={()=> setSearchOpen(false)}>
-            <div className="search-box" onClick={e=> e.stopPropagation()}>
-              <input ref={searchInputRef} placeholder="Buscar módulo… (Esc para cerrar)" value={searchQuery} onChange={e=> setSearchQuery(e.target.value)} />
-              <div className="search-results">
-                {filteredModules.map((m,i)=> (
-                  <div key={m.key} className={`search-item ${i===activeIdx? 'active':''}`} onMouseEnter={()=> setActiveIdx(i)} onClick={()=> openAndLoad(m.key)}>
-                    <span>{m.icon} {m.label}</span>
-                    <span style={{ fontSize:'.65rem', opacity:.6 }}>Enter</span>
-                  </div>
-                ))}
-                {filteredModules.length===0 && <div className="search-item" style={{ opacity:.6 }}>Sin resultados</div>}
-              </div>
-            </div>
-          </div>
-        )}
-      </>
+      </AppShell>
     );
   }
 
-
-
   if (panel === 'finanzas') {
     return (
-      <div className="form-container">
+      <AppShell title="Finanzas">
         <div className="toolbar" style={{ marginBottom: 8 }}>
           <h2 style={{ margin: 0 }}>Gestión Financiera</h2>
-          <button className="btn btn--secondary" onClick={() => setPanel('inicio')}>Volver</button>
+          <button className="btn btn--secondary" onClick={() => setPanel('observabilidad')}>Volver</button>
         </div>
         <div className="panel muted" style={{ marginBottom: 12 }}>Usuario: <b>{user.nombre}</b> ({user.rol})</div>
 
@@ -745,7 +1391,7 @@ function App() {
           <div className="panel__title" style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
             <span>📊 Aging CxP / CxC</span>
             <div style={{ display:'flex', gap:8 }}>
-              <button className="btn btn--secondary" onClick={()=> { loadAging(); }}>Refrescar aging</button>
+              <button className="btn btn--secondary" onClick={loadAging}>Refrescar aging</button>
             </div>
           </div>
           {!aging ? (
@@ -1013,20 +1659,19 @@ function App() {
             </tbody>
           </table>
         </div>
-      </div>
+      </AppShell>
     );
   }
 
   if (panel === 'ventas') {
     return (
-      <div className="form-container">
+      <AppShell title="Ventas y Clientes">
         <div className="toolbar" style={{ marginBottom: 8 }}>
           <h2 style={{ margin: 0 }}>Ventas y Clientes</h2>
-          <button className="btn btn--secondary" onClick={() => setPanel('inicio')}>Volver</button>
+          <button className="btn btn--secondary" onClick={() => setPanel('observabilidad')}>Volver</button>
         </div>
         <div className="panel muted" style={{ marginBottom: 12 }}>Usuario: <b>{user.nombre}</b> ({user.rol})</div>
 
-        <div className="panel" style={{ marginBottom: 16 }}>
         <div className="panel" style={{ marginBottom:16 }}>
           <div className="panel__title">Identidad Visual</div>
           <div style={{ display:'flex', gap:16, flexWrap:'wrap', alignItems:'center' }}>
@@ -1041,13 +1686,18 @@ function App() {
             </div>
           </div>
         </div>
+
+        <div className="panel" style={{ marginBottom: 16 }}>
           <div className="panel__title">👤 Clientes</div>
           <form onSubmit={async(e)=>{
             e.preventDefault();
             setVentasMsg('');
             try{ const r = await fetch(`${VENTAS_URL}/clientes`, { method:'POST', headers:{ 'Content-Type':'application/json', ...(token? { Authorization:`Bearer ${token}` } : {}) }, body: JSON.stringify(newCliente) });
               const d = await r.json();
-              if(r.ok){ setNewCliente({ nombre:'', ruc:'', email:'', telefono:'', direccion:'' }); loadClientes(); setVentasMsg('Cliente creado'); }
+              if(r.ok){ setNewCliente({ nombre:'', ruc:'', email:'', telefono:'', direccion:'' });
+                const created = d.cliente || d.client || d;
+                if (created && created._id) setClientes(prev=> [created, ...prev]); else if (servicesEnabled) loadClientes();
+                setVentasMsg('Cliente creado'); }
               else setVentasMsg(d.error||'Error al crear cliente');
             } catch{ setVentasMsg('Error de conexión'); }
           }} style={{ marginBottom: 12 }}>
@@ -1074,7 +1724,7 @@ function App() {
           <form onSubmit={async(e)=>{
             e.preventDefault(); setVentasMsg('');
             try{ const r = await fetch(`${VENTAS_URL}/productos`, { method:'POST', headers:{ 'Content-Type':'application/json', ...(token? { Authorization:`Bearer ${token}` } : {}) }, body: JSON.stringify(newProductoPT) });
-              const d = await r.json(); if(r.ok){ setNewProductoPT({ sku:'', nombre:'', unidad:'kg' }); loadProductosPT(); setVentasMsg('Producto creado'); } else setVentasMsg(d.error||'Error al crear producto');
+              const d = await r.json(); if(r.ok){ setNewProductoPT({ sku:'', nombre:'', unidad:'kg' }); const created = d.producto || d.item || d; if (created && created._id) setProductosPT(prev=> [created, ...prev]); else if (servicesEnabled) loadProductosPT(); setVentasMsg('Producto creado'); } else setVentasMsg(d.error||'Error al crear producto');
             } catch{ setVentasMsg('Error de conexión'); }
           }} style={{ marginBottom: 12 }}>
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8 }}>
@@ -1100,7 +1750,7 @@ function App() {
           <form onSubmit={async(e)=>{
             e.preventDefault(); setVentasMsg('');
             try{ const r = await fetch(`${VENTAS_URL}/pedidos`, { method:'POST', headers:{ 'Content-Type':'application/json', ...(token? { Authorization:`Bearer ${token}` } : {}) }, body: JSON.stringify(newPedido) });
-              const d = await r.json(); if(r.ok){ setNewPedido({ cliente:'', items:[{ producto:'', cantidad:1, precio:0 }] }); loadPedidos(); setVentasMsg('Pedido creado'); } else setVentasMsg(d.error||'Error al crear pedido');
+              const d = await r.json(); if(r.ok){ setNewPedido({ cliente:'', items:[{ producto:'', cantidad:1, precio:0 }] }); const created = d.pedido || d.order || d; if (created && created._id) setPedidos(prev=> [created, ...prev]); else if (servicesEnabled) loadPedidos(); setVentasMsg('Pedido creado'); } else setVentasMsg(d.error||'Error al crear pedido');
             } catch{ setVentasMsg('Error de conexión'); }
           }} style={{ marginBottom: 12 }}>
             <label>Cliente*</label>
@@ -1122,7 +1772,7 @@ function App() {
             ))}
             <button type="button" className="btn btn--secondary" onClick={()=> setNewPedido({ ...newPedido, items:[...newPedido.items, { producto:'', cantidad:1, precio:0 }] })}>Añadir línea</button>
             <div style={{ height:8 }} />
-            <button className="btn btn--primary" disabled={!newPedido.cliente || newPedido.items.some(i=> !i.producto || i.cantidad<=0)}>Crear Pedido</button>
+            <button className="btn btn--primary" disabled={!pedidoValido}>Crear Pedido</button>
           </form>
 
           <table className="table table--zebra">
@@ -1154,8 +1804,10 @@ function App() {
               {facturas.map(f=> (
                 <tr key={f._id}>
                   <td>{f.numero}</td>
-                  <td>{f.pedido}</td>
-                  <td>{f.total}</td>
+                  <td>{(typeof f.pedido === 'object' && f.pedido !== null)
+                    ? (f.pedido.codigo || f.pedido._id || '-')
+                    : (f.pedido || '-')}</td>
+                  <td>{(Number(f.total)||0).toFixed ? Number(f.total).toFixed(2) : f.total}</td>
                   <td>{f.estado}</td>
                   <td>{f.estado==='emitida' && <button className="btn btn--sm btn--danger" onClick={async()=>{ await fetch(`${VENTAS_URL}/facturas/${f._id}/anular`, { method:'POST', headers: token? { Authorization:`Bearer ${token}` } : {} }); loadFacturas(); }}>Anular</button>}</td>
                 </tr>
@@ -1165,16 +1817,16 @@ function App() {
         </div>
 
         {ventasMsg && <div className="panel" style={{ color: ventasMsg.includes('Error')? '#b23':'#2e7d32' }}>{ventasMsg}</div>}
-      </div>
+      </AppShell>
     );
   }
 
   if (panel === 'calidad') {
     return (
-      <div className="form-container">
+      <AppShell title="Control de Calidad">
         <div className="toolbar" style={{ marginBottom: 8 }}>
           <h2 style={{ margin: 0 }}>Control de Calidad</h2>
-          <button className="btn btn--secondary" onClick={() => setPanel('inicio')}>Volver</button>
+          <button className="btn btn--secondary" onClick={() => setPanel('observabilidad')}>Volver</button>
         </div>
         <div className="panel muted" style={{ marginBottom: 12 }}>Usuario: <b>{user.nombre}</b> ({user.rol})</div>
 
@@ -1359,16 +2011,16 @@ function App() {
             </tbody>
           </table>
         </div>
-      </div>
+      </AppShell>
     );
   }
 
   if (panel === 'inventario') {
     return (
-      <div className="form-container">
+      <AppShell title="Inventario de Granos">
         <div className="toolbar" style={{ marginBottom: 8 }}>
           <h2 style={{ margin: 0 }}>Inventario de Granos</h2>
-          <button className="btn btn--secondary" onClick={() => setPanel('inicio')}>Volver</button>
+          <button className="btn btn--secondary" onClick={() => setPanel('observabilidad')}>Volver</button>
         </div>
         <div className="panel muted" style={{ marginBottom: 12 }}>
           Usuario activo: <b>{user.nombre}</b> ({user.rol})
@@ -1425,16 +2077,16 @@ function App() {
             ))}
           </tbody>
         </table>
-      </div>
+      </AppShell>
     );
   }
 
   if (panel === 'reportes') {
     return (
-      <div className="form-container">
+      <AppShell title="Dashboard de Reportes">
         <div className="toolbar" style={{ marginBottom: 8 }}>
           <h2 style={{ margin: 0 }}>Dashboard</h2>
-          <button className="btn btn--secondary" onClick={() => setPanel('inicio')}>Volver</button>
+          <button className="btn btn--secondary" onClick={() => setPanel('observabilidad')}>Volver</button>
         </div>
         <div className="panel muted" style={{ marginBottom: 12 }}>Usuario: <b>{user.nombre}</b> ({user.rol})</div>
 
@@ -1497,16 +2149,16 @@ function App() {
           </div>
           <div className="muted" style={{ fontSize:12 }}>Nota: merma agregada sobre OPs cerradas en el rango.</div>
         </div>
-      </div>
+      </AppShell>
     );
   }
 
   if (panel === 'produccion') {
     return (
-      <div className="form-container">
+      <AppShell title="Producción">
         <div className="toolbar" style={{ marginBottom: 8 }}>
           <h2 style={{ margin: 0 }}>Producción</h2>
-          <button className="btn btn--secondary" onClick={() => setPanel('inicio')}>Volver</button>
+          <button className="btn btn--secondary" onClick={() => setPanel('observabilidad')}>Volver</button>
         </div>
 
         <form className="panel" onSubmit={async (e) => {
@@ -1602,16 +2254,16 @@ function App() {
             </div>
           </div>
         )}
-      </div>
+      </AppShell>
     );
   }
 
   if (panel === 'config') {
     return (
-      <div className="form-container">
+      <AppShell title="Configuración y Usuarios">
         <div className="toolbar" style={{ marginBottom: 8 }}>
           <h2 style={{ margin: 0 }}>Configuración y Usuarios</h2>
-          <button className="btn btn--secondary" onClick={() => setPanel('inicio')}>Volver</button>
+          <button className="btn btn--secondary" onClick={() => setPanel('observabilidad')}>Volver</button>
         </div>
         <div className="panel muted" style={{ marginBottom: 12 }}>
           Acceso: {user.nombre} ({user.rol})
@@ -1619,7 +2271,19 @@ function App() {
 
         <form className="panel" onSubmit={async(e)=>{
           e.preventDefault();
-          try { const r = await fetch(`${USERS_URL}/registrar`, { method:'POST', headers:{'Content-Type':'application/json', ...(token? { Authorization: `Bearer ${token}` } : {})}, body: JSON.stringify(newUser) }); if (r.ok) { setNewUser({ nombre:'', email:'', password:'', rol:'operador' }); cargarUsuarios(); } }
+          try {
+            const r = await fetch(`${USERS_URL}/registrar`, { method:'POST', headers:{'Content-Type':'application/json', ...(token? { Authorization: `Bearer ${token}` } : {})}, body: JSON.stringify(newUser) });
+            const data = await r.json().catch(() => ({}));
+            if (r.ok) {
+              setNewUser({ nombre:'', email:'', password:'', rol:'operador' });
+              const created = data.usuario || data.user || data;
+              if (created && created._id) {
+                setUsers(prev => [created, ...prev]);
+              } else if (servicesEnabled) {
+                cargarUsuarios();
+              }
+            }
+          }
           catch (e) { console.warn('No se pudo crear usuario', e); }
         }}>
           <div className="panel__title">Crear usuario</div>
@@ -1652,7 +2316,7 @@ function App() {
                 <td>{u.nombre}</td>
                 <td>{u.email}</td>
                 <td>
-                  <select value={u.rol} onChange={async(e)=>{ await fetch(`${USERS_URL}/${u._id}/rol`, { method:'PATCH', headers:{'Content-Type':'application/json', ...(token? { Authorization: `Bearer ${token}` } : {})}, body: JSON.stringify({ rol:e.target.value }) }); cargarUsuarios(); }}>
+                  <select value={u.rol} onChange={async(e)=>{ const newRol = e.target.value; const rr = await fetch(`${USERS_URL}/${u._id}/rol`, { method:'PATCH', headers:{'Content-Type':'application/json', ...(token? { Authorization: `Bearer ${token}` } : {})}, body: JSON.stringify({ rol:newRol }) }); if (rr.ok) { setUsers(prev => prev.map(x => x._id === u._id ? { ...x, rol:newRol } : x)); } else if (servicesEnabled) { cargarUsuarios(); } }}>
                     <option value="operador">Operador</option>
                     <option value="it">Soporte IT</option>
                     <option value="rrhh">RRHH</option>
@@ -1662,22 +2326,22 @@ function App() {
                 </td>
                 <td>
                   <button className="btn btn--sm btn--secondary" onClick={async()=>{ await fetch(`${RESET_SIMPLE_URL}`, { method:'POST', headers:{'Content-Type':'application/json', ...(token? { Authorization: `Bearer ${token}` } : {})}, body: JSON.stringify({ email: u.email, nuevaPassword: '12345678' }) }); }}>Reset pass</button>
-                  <button className="btn btn--sm btn--danger" style={{ marginLeft:6 }} onClick={async()=>{ await fetch(`${USERS_URL}/${u._id}`, { method:'DELETE', headers: token? { Authorization: `Bearer ${token}` } : {} }); cargarUsuarios(); }}>Eliminar</button>
+                  <button className="btn btn--sm btn--danger" style={{ marginLeft:6 }} onClick={async()=>{ const rr = await fetch(`${USERS_URL}/${u._id}`, { method:'DELETE', headers: token? { Authorization: `Bearer ${token}` } : {} }); if (rr.ok) { setUsers(prev => prev.filter(x => x._id !== u._id)); } else if (servicesEnabled) { cargarUsuarios(); } }}>Eliminar</button>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
-      </div>
+      </AppShell>
     );
   }
 
   if (panel === 'compras') {
     return (
-      <div className="form-container">
+      <AppShell title="Gestión de Compras">
         <div className="toolbar" style={{ marginBottom: 8 }}>
           <h2 style={{ margin: 0 }}>Gestión de Compras</h2>
-          <button className="btn btn--secondary" onClick={() => setPanel('inicio')}>Volver</button>
+          <button className="btn btn--secondary" onClick={() => setPanel('observabilidad')}>Volver</button>
         </div>
         <div className="panel muted" style={{ marginBottom: 12 }}>
           Usuario activo: <b>{user.nombre}</b> ({user.rol})
@@ -1694,13 +2358,14 @@ function App() {
                 headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
                 body: JSON.stringify(newProveedor)
               });
+              const data = await res.json().catch(()=>({}));
               if (res.ok) {
                 setNewProveedor({ nombre: '', ruc: '', contacto: '', telefono: '', direccion: '', email: '' });
-                loadProveedores();
+                const created = data.proveedor || data.provider || data;
+                if (created && created._id) setProveedores(prev => [created, ...prev]); else if (servicesEnabled) loadProveedores();
                 setComprasMsg('Proveedor creado exitosamente');
               } else {
-                const data = await res.json();
-                setComprasMsg(data.error || 'Error al crear proveedor');
+                setComprasMsg((data && data.error) || 'Error al crear proveedor');
               }
             } catch {
               setComprasMsg('Error de conexión');
@@ -1771,7 +2436,7 @@ function App() {
                 type="submit" 
                 className="btn btn--primary" 
                 style={{ width: '100%', padding: '10px' }}
-                disabled={!newProveedor.nombre.trim()}
+                disabled={!proveedorValido}
               >
                 🏪 Registrar Proveedor
               </button>
@@ -1851,13 +2516,14 @@ function App() {
                 headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
                 body: JSON.stringify(newOC)
               });
+              const data = await res.json().catch(()=>({}));
               if (res.ok) {
                 setNewOC({ proveedor: '', items: [{ tipo: 'arabica', cantidad: 100, precioUnitario: 3.0 }] });
-                loadOrdenes();
+                const created = data.orden || data.oc || data;
+                if (created && created._id) setOrdenes(prev => [created, ...prev]); else if (servicesEnabled) loadOrdenes();
                 setComprasMsg('Orden de compra creada exitosamente');
               } else {
-                const data = await res.json();
-                setComprasMsg(data.error || 'Error al crear orden');
+                setComprasMsg((data && data.error) || 'Error al crear orden');
               }
             } catch {
               setComprasMsg('Error de conexión');
@@ -1994,7 +2660,7 @@ function App() {
               type="submit" 
               className="btn btn--primary" 
               style={{ width: '100%', padding: '12px', fontSize: '16px' }}
-              disabled={!newOC.proveedor || newOC.items.length === 0}
+              disabled={!ordenValida}
             >
               📋 Crear Orden de Compra
             </button>
@@ -2121,14 +2787,18 @@ function App() {
                 headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
                 body: JSON.stringify(newRecepcion)
               });
+              const data = await res.json().catch(()=>({}));
               if (res.ok) {
                 setNewRecepcion({ ordenCompra: '', lotes: [{ tipo: 'arabica', cantidad: 50, costoUnitario: 3.0, lote: '', fechaCosecha: '', humedad: '' }], observaciones: '' });
-                loadRecepciones();
-                loadOrdenes(); // refresh OC status
+                const created = data.recepcion || data.receipt || data;
+                if (created && created._id) setRecepciones(prev => [created, ...prev]); else if (servicesEnabled) loadRecepciones();
+                // actualizar estado de la OC localmente si aplica
+                const ocId = created?.ordenCompra || newRecepcion.ordenCompra;
+                if (ocId) setOrdenes(prev => prev.map(o => (o._id === (ocId._id || ocId) ? { ...o, estado:'recibida' } : o)));
+                else if (servicesEnabled) loadOrdenes();
                 setComprasMsg('Recepción registrada exitosamente - Inventario actualizado');
               } else {
-                const data = await res.json();
-                setComprasMsg(data.error || 'Error al registrar recepción');
+                setComprasMsg((data && data.error) || 'Error al registrar recepción');
               }
             } catch {
               setComprasMsg('Error de conexión');
@@ -2338,7 +3008,7 @@ function App() {
               type="submit" 
               className="btn btn--primary" 
               style={{ width: '100%', padding: '12px', fontSize: '16px' }}
-              disabled={!newRecepcion.ordenCompra || newRecepcion.lotes.length === 0 || !newRecepcion.lotes.every(l => l.lote.trim())}
+              disabled={!recepcionValida}
             >
               📦 Registrar Recepción de Lotes
             </button>
@@ -2363,9 +3033,34 @@ function App() {
         </div>
 
         {comprasMsg && <div className="panel" style={{ color: comprasMsg.includes('Error') ? '#b23' : '#4a5' }}>{comprasMsg}</div>}
-      </div>
+      </AppShell>
     );
   }
+
+  if (panel === 'trazabilidad') {
+    return (
+      <AppShell title="Trazabilidad">
+        <TrazabilidadPanel />
+      </AppShell>
+    );
+  }
+
+  if (panel === 'stock') {
+    return (
+      <AppShell title="Stock de Productos">
+        <StockProductosPanel />
+      </AppShell>
+    );
+  }
+
+  if (panel === 'observabilidad') {
+    return (
+      <AppShell title="Observabilidad">
+        <ObservabilidadPanel />
+      </AppShell>
+    );
+  }
+
 }
 
-export default App;
+export default App; 
