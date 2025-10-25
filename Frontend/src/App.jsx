@@ -42,10 +42,7 @@ function App() {
   const [logoData, setLogoData] = useState(() => localStorage.getItem('ui:logo') || '');
   
   // Control global para pausar/reanudar cargas de datos de la app
-  const [servicesEnabled, setServicesEnabled] = useState(() => {
-    const v = localStorage.getItem('ui:services');
-    return v !== 'off';
-  });
+  const [servicesEnabled, setServicesEnabled] = useState(true);
   
   useEffect(() => {
     localStorage.setItem('ui:services', servicesEnabled ? 'on' : 'off');
@@ -167,14 +164,14 @@ function App() {
   const loadOPs = useCallback(async () => {
     if (!servicesEnabled) return;
     try {
-      const r = await fetch(PROD_URL);
+      const r = await fetch(PROD_URL, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
       if (r.ok) {
         const data = await r.json();
         setOps(Array.isArray(data) ? data : (data.data || []));
       }
     }
     catch (e) { console.warn('No se pudo cargar OPs', e); }
-  }, [servicesEnabled]);
+  }, [servicesEnabled, token]);
 
   const loadProveedores = useCallback(async () => {
     if (!servicesEnabled) return;
@@ -360,13 +357,13 @@ function App() {
       { key: 'config', label: 'Config', icon: '⚙️' }
     ];
 
-    const handleLogout = useCallback(() => {
+    const handleLogout = () => {
       localStorage.removeItem('token');
       console.log('🔓 Sesión cerrada');
       setUser(null);
       setToken('');
       setPanel('observabilidad');
-    }, []);
+    };
 
     return (
       <div className="app-container">
@@ -562,8 +559,8 @@ function App() {
             setUser({ rol: data.rol });
             setToken(storedToken);
             console.log('✅ Sesión restaurada - Rol:', data.rol);
-            // Ir directamente al panel principal bonito
-            setPanel('observabilidad');
+            // NO navegar automáticamente, dejar que el usuario vea el panel actual
+            // setPanel('observabilidad'); // COMENTADO para evitar carga automática
           } else {
             // Token inválido, limpiar
             localStorage.removeItem('token');
@@ -2164,8 +2161,19 @@ function App() {
         <form className="panel" onSubmit={async (e) => {
           e.preventDefault();
           try {
-            const r = await fetch(`${PROD_URL}/crear`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(newOP) });
-            if (r.ok) { setNewOP({ producto:'', receta:[{ tipo:'arabica', cantidad:1 }] }); loadOPs(); }
+            const authToken = localStorage.getItem('token');
+            const headers = { 'Content-Type': 'application/json' };
+            if (authToken) headers.Authorization = `Bearer ${authToken}`;
+            
+            const r = await fetch(`${PROD_URL}/crear`, { 
+              method: 'POST', 
+              headers,
+              body: JSON.stringify(newOP) 
+            });
+            if (r.ok) { 
+              setNewOP({ producto:'', receta:[{ tipo:'arabica', cantidad:1 }] }); 
+              loadOPs(); 
+            }
           } catch (e) { console.warn('Error al crear OP', e); }
         }}>
           <div className="panel__title">Nueva orden de producción</div>
@@ -2210,9 +2218,29 @@ function App() {
                     <option>Molido</option>
                     <option>Empaque</option>
                   </select>
-                  <button className="btn btn--sm btn--secondary" onClick={async()=>{ await fetch(`${PROD_URL}/${op._id}/etapa`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ etapa:stageSel }) }); loadOPs(); }}>Avanzar</button>
+                  <button className="btn btn--sm btn--secondary" onClick={async()=>{ 
+                    const authToken = localStorage.getItem('token');
+                    const headers = { 'Content-Type': 'application/json' };
+                    if (authToken) headers.Authorization = `Bearer ${authToken}`;
+                    await fetch(`${PROD_URL}/${op._id}/etapa`, { 
+                      method: 'POST', 
+                      headers, 
+                      body: JSON.stringify({ etapa: stageSel }) 
+                    }); 
+                    loadOPs(); 
+                  }}>Avanzar</button>
                   <button className="btn btn--sm btn--secondary" style={{marginLeft:6}} onClick={()=> setModal({ open:true, opId:op._id, receta: (op.receta && op.receta.length ? op.receta.map(r=>({ tipo:r.tipo, cantidad:r.cantidad })) : [{ tipo:'arabica', cantidad:1 }]) })}>Consumir…</button>
-                  <button className="btn btn--sm btn--primary" style={{marginLeft:6}} onClick={async()=>{ await fetch(`${PROD_URL}/${op._id}/cerrar`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ merma:0.1 }) }); loadOPs(); }}>Cerrar</button>
+                  <button className="btn btn--sm btn--primary" style={{marginLeft:6}} onClick={async()=>{ 
+                    const authToken = localStorage.getItem('token');
+                    const headers = { 'Content-Type': 'application/json' };
+                    if (authToken) headers.Authorization = `Bearer ${authToken}`;
+                    await fetch(`${PROD_URL}/${op._id}/cerrar`, { 
+                      method: 'POST', 
+                      headers, 
+                      body: JSON.stringify({ merma: 0.1 }) 
+                    }); 
+                    loadOPs(); 
+                  }}>Cerrar</button>
                 </td>
               </tr>
             ))}
@@ -2246,7 +2274,16 @@ function App() {
                   const items = modal.receta
                     .map(i=> ({ tipo:i.tipo, cantidad:Number(i.cantidad)||0 }))
                     .filter(i => i.cantidad > 0);
-                  await fetch(`${PROD_URL}/${modal.opId}/consumo`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ items }) });
+                  
+                  const authToken = localStorage.getItem('token');
+                  const headers = { 'Content-Type': 'application/json' };
+                  if (authToken) headers.Authorization = `Bearer ${authToken}`;
+                  
+                  await fetch(`${PROD_URL}/${modal.opId}/consumo`, { 
+                    method: 'POST', 
+                    headers, 
+                    body: JSON.stringify({ items }) 
+                  });
                   setModal({ open:false, opId:null, receta:[] });
                   loadOPs();
                 }}>Guardar consumo</button>
